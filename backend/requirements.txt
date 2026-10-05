@@ -2,3 +2,5 @@ rasterio
 numpy
 scipy
 matplotlib
+pystac-client
+planetary-computer
