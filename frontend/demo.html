@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plot Watch</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; color: #1d2a24; }
+  select { font-size: 1rem; padding: .4rem; }
+  .alert { margin: 1rem 0; padding: .8rem 1rem; border-radius: 6px; font-weight: 600; }
+  .alert.alert { background: #fde8e6; color: #9b1c12; }
+  .alert.watch { background: #fff3d6; color: #7a5300; }
+  .alert.clear { background: #e3f4e8; color: #1d6b3a; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; }
+  figure { margin: 0; }
+  img { width: 100%; border-radius: 4px; }
+  figcaption { font-size: .9rem; margin-top: .3rem; }
+</style>
+</head>
+<body>
+<h1>Plot Watch</h1>
+<label for="plot">Choose a plot </label>
+<select id="plot"></select>
+<div id="alert" class="alert"></div>
+<div class="grid" id="images"></div>
+
+<script>
+// Add the folder names you created with detect.py --name
+const PLOTS = [
+  { id: "plot_changed",   label: "Plot A (near Kanpur)" },
+  { id: "plot_unchanged", label: "Plot B (near Kanpur)" }
+];
+
+const select = document.getElementById("plot");
+PLOTS.forEach(p => select.add(new Option(p.label, p.id)));
+
+async function show(id) {
+  const base = `results/${id}/`;
+  const res = await (await fetch(base + "result.json")).json();
+  const box = document.getElementById("alert");
+  box.className = "alert " + res.level;
+  box.textContent = res.alert;
+  const caps = { before: "Before", after: "After", change: "Detected change (red)" };
+  document.getElementById("images").innerHTML = Object.entries(res.images)
+    .map(([k, f]) => `<figure><img src="${base + f}" alt="${caps[k]}"><figcaption>${caps[k]}</figcaption></figure>`)
+    .join("");
+}
+select.addEventListener("change", () => show(select.value));
+show(PLOTS[0].id);
+</script>
+</body>
+</html>
