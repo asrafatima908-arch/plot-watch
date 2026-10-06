@@ -60,13 +60,42 @@ def fetch_scene(bbox, date_range, out_dir, max_cloud=20):
     for band in BANDS:
         download_crop(item.assets[band].href, bbox,
                       out_dir / f"scene_{band}.tif", offset)
+    local = local_cloud_pct(item.assets["SCL"].href, bbox) if "SCL" in item.assets else None
     return {"scene": item.id, "date": str(item.datetime.date()),
-            "cloud": round(item.properties["eo:cloud_cover"], 1)}
+            "cloud": round(item.properties["eo:cloud_cover"], 1),
+            "local_cloud": local}
 
 
 def window_around(day, days):
     d = date.fromisoformat(day)
     return f"{d - timedelta(days=days)}/{d + timedelta(days=days)}"
+
+
+def local_cloud_pct(href, bbox):
+    try:
+        with rasterio.open(href) as src:
+            l, b, r, t = transform_bounds("EPSG:4326", src.crs, *bbox)
+            w = from_bounds(l, b, r, t, src.transform)
+            win = Window(int(round(w.col_off)), int(round(w.row_off)),
+                         max(2, int(round(w.width))), max(2, int(round(w.height))))
+            scl = src.read(1, window=win)
+        valid = scl != 0
+        cloudy = (scl == 3) | (scl == 8) | (scl == 9) | (scl == 10)
+        return round(float(cloudy.sum() / max(valid.sum(), 1) * 100), 1)
+    except Exception:
+        return None
+
+
+def list_scenes(bbox, center_date, window_days=20):
+    catalog = Client.open(STAC_URL)
+    search = catalog.search(collections=["sentinel-2-l2a"], bbox=bbox,
+                            datetime=window_around(center_date, window_days))
+    by_date = {}
+    for it in search.items():
+        d, c = str(it.datetime.date()), round(it.properties["eo:cloud_cover"], 1)
+        if d not in by_date or c < by_date[d]:
+            by_date[d] = c
+    return [{"date": d, "cloud": c} for d, c in sorted(by_date.items())]
 
 
 def analyze(bbox, before_date, after_date, name, out_dir="../frontend/results",
