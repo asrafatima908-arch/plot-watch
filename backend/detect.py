@@ -20,7 +20,7 @@ import rasterio
 from rasterio.enums import Resampling
 from rasterio.warp import transform_bounds
 from rasterio.windows import from_bounds
-from scipy.ndimage import label
+from scipy.ndimage import label, zoom
 
 import matplotlib
 matplotlib.use("Agg")
@@ -73,9 +73,10 @@ def rgb(b, scale=3000.0):
     return np.clip(img, 0, 1) ** 0.8
 
 
-def upscale(img, target=700):
-    k = max(1, target // img.shape[1])
-    return np.repeat(np.repeat(img, k, axis=0), k, axis=1)
+def upscale(img, target=1000):
+    """Smooth (bicubic) upscaling so 10 m pixels don't show up as big blocks."""
+    k = max(1, round(target / img.shape[1]))
+    return np.clip(zoom(img, (k, k, 1), order=3), 0, 1)
 
 
 def check_plot(before_dir, after_dir, bbox, name, out_dir,
@@ -113,11 +114,14 @@ def check_plot(before_dir, after_dir, bbox, name, out_dir,
     out.mkdir(parents=True, exist_ok=True)
 
     img_after = rgb(after)
-    overlay = img_after.copy()
-    overlay[change] = [1.0, 0.1, 0.1]
+    big_after = upscale(img_after)
+    k = big_after.shape[0] // change.shape[0]
+    big_mask = np.repeat(np.repeat(change, k, axis=0), k, axis=1)
+    overlay = big_after.copy()
+    overlay[big_mask] = 0.4 * overlay[big_mask] + 0.6 * np.array([1.0, 0.1, 0.1])
     plt.imsave(out / "before.png", upscale(rgb(before)))
-    plt.imsave(out / "after.png", upscale(img_after))
-    plt.imsave(out / "change.png", upscale(overlay))
+    plt.imsave(out / "after.png", big_after)
+    plt.imsave(out / "change.png", overlay)
 
     result = {
         "plot": name,
