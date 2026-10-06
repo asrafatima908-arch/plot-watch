@@ -4,124 +4,290 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Plot Watch</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
 <style>
-  :root { --ink:#1f2a24; --muted:#5d6b63; --line:#d9dfd9; --bg:#f7f8f5; --accent:#2f6b4f; }
+  :root { --ink:#1f2a24; --muted:#5d6b63; --line:#d9dfd9; --bg:#f7f8f5; --accent:#2f6b4f; --mark:#c2410c; }
   * { box-sizing: border-box; }
   body { margin:0; font-family: Georgia, "Times New Roman", serif; color:var(--ink); background:var(--bg); line-height:1.5; }
-  main { max-width: 980px; margin: 0 auto; padding: 2rem 1rem 4rem; }
-  h1 { font-size: 2rem; margin: 0 0 .25rem; }
-  p.sub { margin: 0 0 1.5rem; color: var(--muted); }
-  form { display:grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 1rem; background:#fff; border:1px solid var(--line); border-radius:8px; padding:1rem; }
+  main { max-width: 1100px; margin: 0 auto; padding: 1.5rem 1rem 4rem; }
+  h1 { font-size: 1.9rem; margin: 0 0 .2rem; }
+  h2 { font-size: 1.2rem; margin: 0 0 .6rem; }
+  p.sub { margin: 0 0 1.25rem; color: var(--muted); }
+  .hidden { display:none !important; }
+  .ui { font-family: system-ui, sans-serif; }
+  .layout { display:grid; grid-template-columns: minmax(0,1.6fr) minmax(280px,1fr); gap:1rem; align-items:start; }
+  @media (max-width: 820px) { .layout { grid-template-columns: 1fr; } }
+  #map { height: 540px; border:1px solid var(--line); border-radius:8px; }
+  @media (max-width: 820px) { #map { height: 380px; } }
+  .panel { background:#fff; border:1px solid var(--line); border-radius:8px; padding:1rem; display:grid; gap:.9rem; }
   label { display:flex; flex-direction:column; font-family: system-ui, sans-serif; font-size:.85rem; color:var(--muted); gap:.25rem; }
-  input { font: inherit; font-size:1rem; padding:.55rem; border:1px solid var(--line); border-radius:6px; color:var(--ink); }
+  input { font: inherit; font-size:1rem; padding:.55rem; border:1px solid var(--line); border-radius:6px; color:var(--ink); width:100%; }
+  .row { display:grid; grid-template-columns: 1fr 1fr; gap:.75rem; }
+  .inline { display:flex; gap:.5rem; }
+  .inline input { flex:1; }
+  button { font-family: system-ui, sans-serif; font-size:.95rem; padding:.6rem 1rem; border-radius:6px; border:1px solid var(--accent); cursor:pointer; background:#fff; color:var(--accent); }
+  button.primary { background:var(--accent); color:#fff; font-size:1rem; }
+  button.on { background:var(--mark); border-color:var(--mark); color:#fff; }
+  button:disabled { opacity:.55; cursor:not-allowed; }
   input:focus-visible, button:focus-visible { outline: 3px solid #9cc7b0; outline-offset: 1px; }
-  .actions { grid-column: 1 / -1; display:flex; gap:.75rem; flex-wrap:wrap; align-items:center; }
-  button { font-family: system-ui, sans-serif; font-size:1rem; padding:.65rem 1.2rem; border-radius:6px; border:1px solid var(--accent); cursor:pointer; }
-  button.primary { background:var(--accent); color:#fff; }
-  button.ghost { background:#fff; color:var(--accent); }
-  button:disabled { opacity:.6; cursor:wait; }
-  #status { margin:1.25rem 0 0; font-family: system-ui, sans-serif; color:var(--muted); }
-  #status.error { color:#9b1c12; }
-  .alert { margin:1.5rem 0 1rem; padding:.9rem 1rem; border-radius:6px; font-family: system-ui, sans-serif; font-weight:600; }
+  .hint { font-family: system-ui, sans-serif; font-size:.85rem; color:var(--muted); margin:0; }
+  .warn, .error { color:#9b1c12; }
+  #status { font-family: system-ui, sans-serif; color:var(--muted); margin:.25rem 0 0; min-height:1.4em; }
+  /* results */
+  .topbar { display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; }
+  .alert { padding:.9rem 1rem; border-radius:6px; font-family: system-ui, sans-serif; font-weight:600; margin-bottom:1rem; }
   .alert.alert { background:#fde8e6; color:#9b1c12; }
   .alert.watch { background:#fff3d6; color:#7a5300; }
   .alert.clear { background:#e3f4e8; color:#1d6b3a; }
-  .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap:1rem; }
-  figure { margin:0; }
-  img { width:100%; display:block; border-radius:4px; border:1px solid var(--line); }
-  figcaption { font-family: system-ui, sans-serif; font-size:.9rem; color:var(--muted); margin-top:.35rem; }
-  .meta { font-family: system-ui, sans-serif; font-size:.85rem; color:var(--muted); margin-top:1rem; }
-  .hidden { display:none; }
+  .tabs { display:flex; gap:.5rem; margin-bottom:.75rem; flex-wrap:wrap; }
+  .tabs button[aria-pressed="true"] { background:var(--accent); color:#fff; }
+  .cmp { position:relative; overflow:hidden; border-radius:6px; border:1px solid var(--line); touch-action:pan-y; cursor:ew-resize; user-select:none; max-width:900px; }
+  .cmp img { display:block; width:100%; pointer-events:none; }
+  .cmp img.top { position:absolute; inset:0; clip-path: inset(0 50% 0 0); }
+  .cmp .line { position:absolute; top:0; bottom:0; left:50%; width:3px; margin-left:-1.5px; background:#fff; box-shadow:0 0 0 1px rgba(0,0,0,.35); }
+  .cmp .tag { position:absolute; top:.5rem; font-family:system-ui,sans-serif; font-size:.8rem; padding:.2rem .5rem; background:rgba(0,0,0,.6); color:#fff; border-radius:4px; }
+  .cmp .tag.l { left:.5rem; } .cmp .tag.r { right:.5rem; }
+  #pos { width:100%; max-width:900px; margin-top:.6rem; padding:0; border:0; accent-color:var(--accent); }
+  .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap:1rem; max-width:1000px; }
+  figure { margin:0; } figure img { width:100%; display:block; border-radius:6px; border:1px solid var(--line); }
+  figcaption { font-family: system-ui, sans-serif; font-size:.9rem; color:var(--muted); margin-top:.3rem; }
+  .meta { font-family: system-ui, sans-serif; font-size:.85rem; color:var(--muted); margin-top:1rem; max-width:900px; }
 </style>
 </head>
 <body>
 <main>
-  <h1>Plot Watch</h1>
-  <p class="sub">Pick a place and two dates. We compare satellite images and show what changed.</p>
-
-  <form id="form">
-    <label>Latitude
-      <input id="lat" type="number" step="any" required value="26.4503">
-    </label>
-    <label>Longitude
-      <input id="lon" type="number" step="any" required value="80.1921">
-    </label>
-    <label>Area size (km)
-      <input id="size" type="number" step="0.5" min="0.5" max="5" required value="2">
-    </label>
-    <label>Before date
-      <input id="before" type="date" required value="2020-02-15">
-    </label>
-    <label>After date
-      <input id="after" type="date" required value="2025-02-15">
-    </label>
-    <div class="actions">
-      <button class="primary" id="go" type="submit">Compare images</button>
-      <button class="ghost" id="psit" type="button">Use PSIT campus</button>
+  <!-- PAGE 1: choose location and dates -->
+  <section id="pickView">
+    <h1>Plot Watch</h1>
+    <p class="sub">Search a city or click the map, choose an area and two dates, and see what changed.</p>
+    <div class="layout">
+      <div id="map" role="application" aria-label="Map for choosing an area"></div>
+      <div class="panel">
+        <form id="searchForm" class="inline">
+          <input id="q" type="search" placeholder="Search a city or place, e.g. Kanpur" aria-label="Search a city or place">
+          <button type="submit">Search</button>
+        </form>
+        <div>
+          <h2>1. Choose the area</h2>
+          <p class="hint">Click the map to place a square, or draw your own rectangle.</p>
+          <div class="inline" style="margin-top:.5rem">
+            <label style="flex:1">Square size (km)
+              <input id="size" type="number" min="0.5" max="6" step="0.5" value="2">
+            </label>
+            <button id="draw" type="button" style="align-self:end">Draw an area</button>
+          </div>
+          <p class="hint" id="areaInfo" style="margin-top:.5rem">No area selected yet.</p>
+          <p class="hint warn" id="areaWarn"></p>
+        </div>
+        <div>
+          <h2>2. Choose two dates</h2>
+          <div class="row">
+            <label>Before <input id="before" type="date" value="2020-02-15" required></label>
+            <label>After <input id="after" type="date" value="2025-02-15" required></label>
+          </div>
+          <p class="hint" style="margin-top:.4rem">Use the same season for both dates. We pick the clearest image within 20 days of each.</p>
+        </div>
+        <button id="go" class="primary" type="button">Compare images</button>
+        <button id="psit" type="button">Use PSIT campus</button>
+        <p id="status" role="status"></p>
+      </div>
     </div>
-  </form>
+  </section>
 
-  <p id="status" role="status"></p>
-
-  <section id="result" class="hidden">
+  <!-- PAGE 2: before / after results -->
+  <section id="resultView" class="hidden">
+    <div class="topbar">
+      <h1>Before and after</h1>
+      <button id="back" type="button">&larr; New search</button>
+    </div>
     <div id="alert" class="alert"></div>
-    <div class="grid" id="images"></div>
+    <div class="tabs" role="group" aria-label="View mode">
+      <button type="button" data-mode="slider" aria-pressed="true">Slider</button>
+      <button type="button" data-mode="side" aria-pressed="false">Side by side</button>
+      <button type="button" data-mode="change" aria-pressed="false">Change map</button>
+    </div>
+
+    <div id="modeSlider">
+      <div class="cmp" id="cmp">
+        <img id="imgAfter" alt="After image">
+        <img id="imgBefore" class="top" alt="Before image">
+        <div class="line" id="line"></div>
+        <span class="tag l" id="tagBefore"></span><span class="tag r" id="tagAfter"></span>
+      </div>
+      <input id="pos" type="range" min="0" max="100" value="50" aria-label="Slide between before and after">
+    </div>
+
+    <div id="modeSide" class="grid hidden"></div>
+    <div id="modeChange" class="grid hidden"></div>
     <p class="meta" id="meta"></p>
   </section>
 </main>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script>
 const $ = id => document.getElementById(id);
-const form = $("form"), statusEl = $("status"), go = $("go");
+const KM_LAT = 110.57, KM_LON = 111.32, MAX_KM = 6, MIN_KM = 0.3;
+let bounds = null, rect = null, tmp = null, drawMode = false, drawStart = null, skipClick = false, busy = false;
 
-$("after").max = new Date().toISOString().slice(0, 10);
+/* ---------- map ---------- */
+const map = L.map("map").setView([26.4503, 80.1921], 13);
+const sat = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+  { attribution: "Imagery &copy; Esri", maxZoom: 19 }).addTo(map);
+const street = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+  { attribution: "&copy; OpenStreetMap contributors", maxZoom: 19 });
+L.control.layers({ Satellite: sat, Street: street }).addTo(map);
 
-$("psit").addEventListener("click", () => {
-  $("lat").value = 26.4503;
-  $("lon").value = 80.1921;
+function squareAround(c, km) {
+  const dlat = km / 2 / KM_LAT, dlon = km / 2 / (KM_LON * Math.cos(c.lat * Math.PI / 180));
+  return L.latLngBounds([c.lat - dlat, c.lng - dlon], [c.lat + dlat, c.lng + dlon]);
+}
+function sizeKm(b) {
+  const lat = b.getCenter().lat;
+  return { w: (b.getEast() - b.getWest()) * KM_LON * Math.cos(lat * Math.PI / 180),
+           h: (b.getNorth() - b.getSouth()) * KM_LAT };
+}
+function updateGo() {
+  const ok = bounds && !$("areaWarn").textContent;
+  $("go").disabled = busy || !ok;
+}
+function setBounds(b) {
+  bounds = b;
+  if (rect) rect.setBounds(b);
+  else rect = L.rectangle(b, { color: "#c2410c", weight: 2, fillOpacity: .12 }).addTo(map);
+  const { w, h } = sizeKm(b), c = b.getCenter();
+  $("areaInfo").textContent = `Selected: ${w.toFixed(1)} \u00d7 ${h.toFixed(1)} km around ${c.lat.toFixed(4)}, ${c.lng.toFixed(4)}`;
+  $("areaWarn").textContent = Math.max(w, h) > MAX_KM ? `Too large. Keep each side under ${MAX_KM} km.`
+    : Math.min(w, h) < MIN_KM ? `Too small. Keep each side at least ${MIN_KM} km.` : "";
+  updateGo();
+}
+
+map.on("click", e => {
+  if (drawMode || skipClick) return;
+  setBounds(squareAround(e.latlng, +$("size").value || 2));
+});
+$("size").addEventListener("input", () => {
+  if (bounds) setBounds(squareAround(bounds.getCenter(), +$("size").value || 2));
 });
 
-form.addEventListener("submit", async e => {
+/* draw your own rectangle */
+function stopDraw() {
+  drawMode = false; drawStart = null; map.dragging.enable();
+  $("draw").classList.remove("on"); $("draw").textContent = "Draw an area";
+  map.getContainer().style.cursor = "";
+}
+$("draw").addEventListener("click", () => {
+  if (drawMode) return stopDraw();
+  drawMode = true; $("draw").classList.add("on"); $("draw").textContent = "Drag on the map\u2026";
+  map.getContainer().style.cursor = "crosshair";
+});
+map.on("mousedown", e => { if (drawMode) { drawStart = e.latlng; map.dragging.disable(); } });
+map.on("mousemove", e => {
+  if (!drawMode || !drawStart) return;
+  const b = L.latLngBounds(drawStart, e.latlng);
+  if (tmp) tmp.setBounds(b); else tmp = L.rectangle(b, { color: "#c2410c", dashArray: "4" }).addTo(map);
+});
+map.on("mouseup", e => {
+  if (!drawMode || !drawStart) return;
+  const b = L.latLngBounds(drawStart, e.latlng);
+  if (tmp) { map.removeLayer(tmp); tmp = null; }
+  skipClick = true; setTimeout(() => skipClick = false, 80);
+  stopDraw();
+  if (sizeKm(b).w > 0.05) setBounds(b);
+});
+
+/* search a city or place */
+$("searchForm").addEventListener("submit", async e => {
   e.preventDefault();
-  $("result").classList.add("hidden");
-  statusEl.className = "";
-  statusEl.textContent = "Fetching satellite images. This takes about 30 to 90 seconds.";
-  go.disabled = true;
+  const q = $("q").value.trim();
+  if (!q) return;
+  $("status").className = ""; $("status").textContent = "Searching\u2026";
+  try {
+    const r = await fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&q=" + encodeURIComponent(q));
+    const j = await r.json();
+    if (!j.length) { $("status").textContent = "Place not found. Try a different name."; return; }
+    const p = j[0], bb = p.boundingbox.map(Number);
+    map.fitBounds([[bb[0], bb[2]], [bb[1], bb[3]]]);
+    setBounds(squareAround(L.latLng(+p.lat, +p.lon), +$("size").value || 2));
+    $("status").textContent = p.display_name + ". Click the map to move the square, or draw your own area.";
+  } catch (err) {
+    $("status").className = "error"; $("status").textContent = "Search failed. Check your connection.";
+  }
+});
+
+$("psit").addEventListener("click", () => {
+  const c = L.latLng(26.4503, 80.1921);
+  map.setView(c, 14); setBounds(squareAround(c, +$("size").value || 2));
+});
+
+/* ---------- compare ---------- */
+$("go").addEventListener("click", async () => {
+  if (!bounds) { $("status").textContent = "Choose an area on the map first."; return; }
+  busy = true; updateGo();
+  $("status").className = "";
+  $("status").textContent = "Fetching satellite images. This takes about 30 to 90 seconds.";
   try {
     const resp = await fetch("/api/analyze", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        lat: $("lat").value, lon: $("lon").value, size_km: $("size").value,
+        bbox: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()],
         before_date: $("before").value, after_date: $("after").value
       })
     });
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || "Something went wrong.");
-    render(data);
-    statusEl.textContent = "";
+    showResult(data);
+    $("status").textContent = "";
   } catch (err) {
-    statusEl.className = "error";
-    statusEl.textContent = err.message;
-  } finally {
-    go.disabled = false;
-  }
+    $("status").className = "error"; $("status").textContent = err.message;
+  } finally { busy = false; updateGo(); }
 });
 
-function render(d) {
-  const box = $("alert");
-  box.className = "alert " + d.level;
-  box.textContent = d.alert;
-  const caps = { before: "Before", after: "After", change: "Detected change (red)" };
-  $("images").innerHTML = Object.entries(d.image_urls).map(([k, url]) =>
-    `<figure><img src="${url}" alt="${caps[k]}"><figcaption>${caps[k]}` +
-    (k === "before" ? ` (${d.before_scene.date})` : k === "after" ? ` (${d.after_scene.date})` : "") +
-    `</figcaption></figure>`).join("");
-  $("meta").textContent =
-    `Changed area: ${d.change_percent}% of the selected region. ` +
-    `Images used: ${d.before_scene.date} and ${d.after_scene.date} (nearest clear Sentinel-2 scenes, 10 m resolution).`;
-  $("result").classList.remove("hidden");
+/* ---------- results page ---------- */
+function showView(name) {
+  $("pickView").classList.toggle("hidden", name !== "pick");
+  $("resultView").classList.toggle("hidden", name !== "result");
+  if (name === "pick") map.invalidateSize();
+  window.scrollTo(0, 0);
 }
+$("back").addEventListener("click", () => showView("pick"));
+
+function setMode(mode) {
+  document.querySelectorAll(".tabs button").forEach(b => b.setAttribute("aria-pressed", b.dataset.mode === mode));
+  $("modeSlider").classList.toggle("hidden", mode !== "slider");
+  $("modeSide").classList.toggle("hidden", mode !== "side");
+  $("modeChange").classList.toggle("hidden", mode !== "change");
+}
+document.querySelectorAll(".tabs button").forEach(b => b.addEventListener("click", () => setMode(b.dataset.mode)));
+
+function setPos(v) {
+  v = Math.max(0, Math.min(100, v));
+  $("imgBefore").style.clipPath = `inset(0 ${100 - v}% 0 0)`;
+  $("line").style.left = v + "%";
+  $("pos").value = v;
+}
+$("pos").addEventListener("input", e => setPos(+e.target.value));
+let dragging = false;
+const fromPointer = e => { const r = $("cmp").getBoundingClientRect(); setPos((e.clientX - r.left) / r.width * 100); };
+$("cmp").addEventListener("pointerdown", e => { dragging = true; $("cmp").setPointerCapture(e.pointerId); fromPointer(e); });
+$("cmp").addEventListener("pointermove", e => { if (dragging) fromPointer(e); });
+$("cmp").addEventListener("pointerup", () => dragging = false);
+
+function showResult(d) {
+  const u = d.image_urls, bd = d.before_scene.date, ad = d.after_scene.date;
+  $("alert").className = "alert " + d.level; $("alert").textContent = d.alert;
+  $("imgBefore").src = u.before; $("imgAfter").src = u.after;
+  $("tagBefore").textContent = "Before \u00b7 " + bd; $("tagAfter").textContent = "After \u00b7 " + ad;
+  const fig = (src, cap) => `<figure><img src="${src}" alt="${cap}"><figcaption>${cap}</figcaption></figure>`;
+  $("modeSide").innerHTML = fig(u.before, "Before (" + bd + ")") + fig(u.after, "After (" + ad + ")");
+  $("modeChange").innerHTML = fig(u.change, "Detected change in red (" + d.change_percent + "% of the area)") +
+    `<p class="meta"><a href="${u.change}" download="change-map.png">Download change map</a></p>`;
+  $("meta").textContent = `Area: ${d.area_km[0]} \u00d7 ${d.area_km[1]} km. ` +
+    `Images used: ${bd} and ${ad} (clearest Sentinel-2 scenes near your dates, 10 m resolution). ` +
+    `This is a screening result; verify important findings on the ground.`;
+  setPos(50); setMode("slider"); showView("result");
+}
+
+$("after").max = new Date().toISOString().slice(0, 10);
 </script>
 </body>
 </html>
