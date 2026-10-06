@@ -106,6 +106,14 @@
   figure { margin:0; } figure img { width:100%; display:block; border-radius:12px; border:1px solid var(--line); }
   figcaption { font-size:.9rem; color:var(--muted); margin-top:.35rem; }
   .meta { font-size:.85rem; color:var(--muted); margin:1.1rem 0 0; max-width:900px; }
+  .clouds { margin-top:.8rem; display:grid; gap:.9rem; }
+  .cl h3 { font-size:.82rem; margin:0 0 .3rem; color:var(--muted); font-weight:600; }
+  .crow { display:grid; grid-template-columns:5.6rem 1fr 3rem auto; gap:.5rem; align-items:center; font-size:.85rem; padding:.15rem 0; }
+  .bar { height:8px; background:#ebe5d6; border-radius:99px; overflow:hidden; }
+  .bar i { display:block; height:100%; border-radius:99px; }
+  .use { font-size:.72rem; background:#e3f4e8; color:#1d6b3a; padding:.1rem .45rem; border-radius:6px; }
+  .warn-text { color:#9b1c12; }
+  #resMap { height:540px; max-width:960px; border-radius:14px; border:1px solid var(--line); }
   a { color:var(--moss); font-weight:600; }
 </style>
 </head>
@@ -157,6 +165,13 @@
             <label>Before <input id="before" type="date" required></label>
             <label>After <input id="after" type="date" required></label>
           </div>
+          <div style="margin-top:.9rem">
+            <label>Max cloud cover <output id="cloudOut" style="text-transform:none;letter-spacing:0;color:var(--moss)">20%</output>
+              <input id="maxCloud" type="range" min="5" max="60" step="5" value="20">
+            </label>
+          </div>
+          <button id="checkClouds" type="button" class="btn" style="margin-top:.7rem">Check cloud cover</button>
+          <div id="clouds" class="clouds" aria-live="polite"></div>
         </div>
       </div>
 
@@ -180,6 +195,7 @@
       <button type="button" data-mode="slider" aria-pressed="true">Slider</button>
       <button type="button" data-mode="side" aria-pressed="false">Side by side</button>
       <button type="button" data-mode="change" aria-pressed="false">Change map</button>
+      <button type="button" data-mode="map" aria-pressed="false">On sharp map</button>
     </div>
 
     <div id="modeSlider">
@@ -194,6 +210,13 @@
     </div>
     <div id="modeSide" class="grid hidden"></div>
     <div id="modeChange" class="grid hidden"></div>
+    <div id="modeMap" class="hidden">
+      <div id="resMap"></div>
+      <label style="max-width:320px;margin-top:.7rem">Change overlay opacity
+        <input id="ovOp" type="range" min="0" max="100" value="80">
+      </label>
+      <p class="hint" style="margin-top:.5rem">Detected changes (red) drawn over high-resolution current imagery. The detection itself uses 10 m Sentinel-2 data, so edges are approximate.</p>
+    </div>
     <p class="meta" id="meta"></p>
   </section>
 </main>
@@ -242,6 +265,7 @@ function setBounds(b) {
     : small ? `Too small. Keep each side at least ${MIN_KM} km.`
     : `${w.toFixed(1)} \u00d7 ${h.toFixed(1)} km selected, centred at ${c.lat.toFixed(4)}, ${c.lng.toFixed(4)}`;
   $("mapHint").classList.add("hidden");
+  $("clouds").innerHTML = "";
   updateGo();
 }
 updateGo();
@@ -315,7 +339,8 @@ $("go").addEventListener("click", async () => {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         bbox: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()],
-        before_date: $("before").value, after_date: $("after").value
+        before_date: $("before").value, after_date: $("after").value,
+        max_cloud: +$("maxCloud").value
       })
     });
     const data = await resp.json();
@@ -324,6 +349,53 @@ $("go").addEventListener("click", async () => {
   } catch (err) { say(err.message, "error"); }
   finally { busy = false; updateGo(); }
 });
+
+/* ---------- cloud cover checker ---------- */
+$("maxCloud").addEventListener("input", () => $("cloudOut").textContent = $("maxCloud").value + "%");
+["before", "after"].forEach(id => $(id).addEventListener("change", () => $("clouds").innerHTML = ""));
+const cloudColor = c => c < 10 ? "#2f9e5f" : c < 30 ? "#d19a1f" : "#c2410c";
+function cloudList(title, scenes, limit) {
+  if (!scenes.length) return `<div class="cl"><h3>${title}</h3><p class="hint">No images found in this window.</p></div>`;
+  const usable = scenes.filter(s => s.cloud < limit);
+  const best = usable.length ? usable.reduce((a, b) => b.cloud < a.cloud ? b : a) : null;
+  return `<div class="cl"><h3>${title}</h3>` + scenes.map(s =>
+    `<div class="crow"><span>${s.date}</span><span class="bar"><i style="width:${Math.max(s.cloud, 2)}%;background:${cloudColor(s.cloud)}"></i></span>` +
+    `<span>${s.cloud}%</span>${s === best ? '<b class="use">Will be used</b>' : ""}</div>`).join("") + "</div>";
+}
+$("checkClouds").addEventListener("click", async () => {
+  if (!bounds) return say("Choose an area on the map first.", "error");
+  const box = $("clouds"); box.innerHTML = '<p class="hint">Checking available images\u2026</p>';
+  try {
+    const resp = await fetch("/api/scenes", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        bbox: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()],
+        before_date: $("before").value, after_date: $("after").value
+      })
+    });
+    const d = await resp.json();
+    if (!resp.ok) throw new Error(d.error || "Could not check images.");
+    const lim = +$("maxCloud").value;
+    box.innerHTML = cloudList("Images near " + $("before").value, d.before, lim) +
+      cloudList("Images near " + $("after").value, d.after, lim) +
+      '<p class="hint">Percentages here cover the whole satellite tile (about 110 km wide). The results page shows cloud over your own area.</p>';
+  } catch (err) { box.innerHTML = `<p class="hint warn-text">${err.message}</p>`; }
+});
+
+/* ---------- sharp map view ---------- */
+let resMap = null, ovLayer = null, lastResult = null;
+function initResMap() {
+  const [w, s, e, n] = lastResult.bbox, b = [[s, w], [n, e]];
+  if (!resMap) {
+    resMap = L.map("resMap");
+    L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+      { attribution: "Imagery &copy; Esri", maxZoom: 19 }).addTo(resMap);
+  }
+  if (ovLayer) resMap.removeLayer(ovLayer);
+  ovLayer = L.imageOverlay(lastResult.image_urls.overlay, b, { opacity: +$("ovOp").value / 100 }).addTo(resMap);
+  resMap.invalidateSize(); resMap.fitBounds(b);
+}
+$("ovOp").addEventListener("input", () => ovLayer && ovLayer.setOpacity(+$("ovOp").value / 100));
 
 /* ---------- results ---------- */
 function showView(name) {
@@ -339,6 +411,8 @@ function setMode(mode) {
   $("modeSlider").classList.toggle("hidden", mode !== "slider");
   $("modeSide").classList.toggle("hidden", mode !== "side");
   $("modeChange").classList.toggle("hidden", mode !== "change");
+  $("modeMap").classList.toggle("hidden", mode !== "map");
+  if (mode === "map" && lastResult) initResMap();
 }
 document.querySelectorAll(".seg button").forEach(b => b.addEventListener("click", () => setMode(b.dataset.mode)));
 
@@ -354,12 +428,14 @@ $("cmp").addEventListener("pointerdown", e => { dragging = true; $("cmp").setPoi
 $("cmp").addEventListener("pointermove", e => { if (dragging) fromPointer(e); });
 $("cmp").addEventListener("pointerup", () => dragging = false);
 
+const cl = s => (s.local_cloud ?? s.cloud) + "%";
 function showResult(d) {
   const u = d.image_urls, bd = d.before_scene.date, ad = d.after_scene.date;
   $("alert").className = "alertbox " + d.level; $("alert").textContent = d.alert;
   $("stats").innerHTML = [
     [d.change_percent + "%", "Area changed"], [d.area_km[0] + " \u00d7 " + d.area_km[1] + " km", "Area size"],
-    [bd, "Before image"], [ad, "After image"]
+    [bd, "Before image"], [ad, "After image"],
+    [cl(d.before_scene), "Cloud, before"], [cl(d.after_scene), "Cloud, after"]
   ].map(([v, l]) => `<div class="stat"><b>${v}</b><span>${l}</span></div>`).join("");
   $("imgBefore").src = u.before; $("imgAfter").src = u.after;
   $("tagBefore").textContent = "Before \u00b7 " + bd; $("tagAfter").textContent = "After \u00b7 " + ad;
@@ -367,9 +443,12 @@ function showResult(d) {
   $("modeSide").innerHTML = fig(u.before, "Before (" + bd + ")") + fig(u.after, "After (" + ad + ")");
   $("modeChange").innerHTML = fig(u.change, "Detected change in red") +
     `<p class="meta"><a href="${u.change}" download="change-map.png">Download change map</a></p>`;
+  const cloudy = [d.before_scene, d.after_scene].some(s => (s.local_cloud ?? s.cloud) > 10);
   $("meta").textContent = "Images are the clearest Sentinel-2 scenes near your chosen dates, at 10 m resolution. " +
+    "Cloud figures are measured over your selected area. " +
+    (cloudy ? "Clouds cover part of your area in one of the images, so some detected change may be cloud rather than land. Try other dates. " : "") +
     "This is a screening result, so verify important findings on the ground.";
-  setPos(50); setMode("slider"); showView("result");
+  lastResult = d; setPos(50); setMode("slider"); showView("result");
 }
 </script>
 </body>
