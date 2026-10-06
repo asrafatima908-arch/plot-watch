@@ -8,7 +8,7 @@ from datetime import date
 
 from flask import Flask, jsonify, request, send_from_directory
 
-from fetch import analyze
+from fetch import analyze, list_scenes
 
 MAX_KM, MIN_KM = 6.0, 0.3  # allowed side length of the selected area
 
@@ -20,35 +20,60 @@ def home():
     return send_from_directory(app.static_folder, "index.html")
 
 
-@app.route("/api/analyze", methods=["POST"])
-def api_analyze():
-    d = request.get_json(force=True)
+def parse_request(d):
+    """Validate area and dates. Returns (bbox, before, after, w_km, h_km, error_message)."""
     try:
         west, south, east, north = [float(x) for x in d["bbox"]]
         before = date.fromisoformat(d["before_date"])
         after = date.fromisoformat(d["after_date"])
     except (KeyError, ValueError, TypeError):
-        return jsonify(error="Please choose an area on the map and both dates."), 400
-
+        return None, None, None, 0, 0, "Please choose an area on the map and both dates."
     if not (-180 <= west < east <= 180 and -90 <= south < north <= 90):
-        return jsonify(error="The selected area is not valid."), 400
+        return None, None, None, 0, 0, "The selected area is not valid."
     lat = (south + north) / 2
     w_km = (east - west) * 111.32 * math.cos(math.radians(lat))
     h_km = (north - south) * 110.57
+    err = None
     if max(w_km, h_km) > MAX_KM:
-        return jsonify(error=f"Area too large. Keep each side under {MAX_KM:g} km."), 400
-    if min(w_km, h_km) < MIN_KM:
-        return jsonify(error=f"Area too small. Keep each side at least {MIN_KM:g} km."), 400
-    if before >= after:
-        return jsonify(error="The 'before' date must be earlier than the 'after' date."), 400
-    if after > date.today():
-        return jsonify(error="The 'after' date cannot be in the future."), 400
-    if before < date(2017, 1, 1):
-        return jsonify(error="Sentinel-2 images are available from 2017 onward."), 400
+        err = f"Area too large. Keep each side under {MAX_KM:g} km."
+    elif min(w_km, h_km) < MIN_KM:
+        err = f"Area too small. Keep each side at least {MIN_KM:g} km."
+    elif before >= after:
+        err = "The 'before' date must be earlier than the 'after' date."
+    elif after > date.today():
+        err = "The 'after' date cannot be in the future."
+    elif before < date(2017, 1, 1):
+        err = "Sentinel-2 images are available from 2017 onward."
+    return [west, south, east, north], before, after, w_km, h_km, err
+
+
+@app.route("/api/scenes", methods=["POST"])
+def api_scenes():
+    d = request.get_json(force=True)
+    bbox, before, after, _, _, err = parse_request(d)
+    if err:
+        return jsonify(error=err), 400
+    try:
+        return jsonify(before=list_scenes(bbox, before.isoformat()),
+                       after=list_scenes(bbox, after.isoformat()))
+    except Exception as e:
+        return jsonify(error=f"Could not check images: {e}"), 500
+
+
+@app.route("/api/analyze", methods=["POST"])
+def api_analyze():
+    d = request.get_json(force=True)
+    bbox, before, after, w_km, h_km, err = parse_request(d)
+    if err:
+        return jsonify(error=err), 400
+    try:
+        max_cloud = min(80.0, max(1.0, float(d.get("max_cloud", 20))))
+    except (ValueError, TypeError):
+        max_cloud = 20.0
 
     name = "run_" + uuid.uuid4().hex[:8]
     try:
-        res = analyze([west, south, east, north], before.isoformat(), after.isoformat(), name)
+        res = analyze(bbox, before.isoformat(), after.isoformat(), name, max_cloud=max_cloud)
     except RuntimeError as e:
         return jsonify(error=str(e)), 404
     except Exception as e:  # network or data problems
@@ -56,6 +81,7 @@ def api_analyze():
 
     res["image_urls"] = {k: f"results/{name}/{v}" for k, v in res["images"].items()}
     res["area_km"] = [round(w_km, 1), round(h_km, 1)]
+    res["bbox"] = bbox
     return jsonify(res)
 
 
