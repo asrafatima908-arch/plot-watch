@@ -3,105 +3,180 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Plot Watch</title>
+<title>Plot Watch | See how land changes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Fraunces:opsz,wght@9..144,600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
 <style>
-  :root { --ink:#1f2a24; --muted:#5d6b63; --line:#d9dfd9; --bg:#f7f8f5; --accent:#2f6b4f; --mark:#c2410c; }
+  :root {
+    --forest:#12302a; --moss:#2f6b4f; --leaf:#4f9a73; --sand:#f5f1e8; --card:#fffdf8;
+    --ink:#1b2a23; --muted:#66746b; --line:#e2dccd; --clay:#c2410c;
+    --serif: Fraunces, Georgia, "Times New Roman", serif;
+    --sans: "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --shadow: 0 1px 2px rgba(18,48,42,.06), 0 8px 24px rgba(18,48,42,.08);
+  }
   * { box-sizing: border-box; }
-  body { margin:0; font-family: Georgia, "Times New Roman", serif; color:var(--ink); background:var(--bg); line-height:1.5; }
-  main { max-width: 1100px; margin: 0 auto; padding: 1.5rem 1rem 4rem; }
-  h1 { font-size: 1.9rem; margin: 0 0 .2rem; }
-  h2 { font-size: 1.2rem; margin: 0 0 .6rem; }
-  p.sub { margin: 0 0 1.25rem; color: var(--muted); }
+  body { margin:0; font-family:var(--sans); color:var(--ink); background:var(--sand); line-height:1.5; }
   .hidden { display:none !important; }
-  .ui { font-family: system-ui, sans-serif; }
-  .layout { display:grid; grid-template-columns: minmax(0,1.6fr) minmax(280px,1fr); gap:1rem; align-items:start; }
-  @media (max-width: 820px) { .layout { grid-template-columns: 1fr; } }
-  #map { height: 540px; border:1px solid var(--line); border-radius:8px; }
-  @media (max-width: 820px) { #map { height: 380px; } }
-  .panel { background:#fff; border:1px solid var(--line); border-radius:8px; padding:1rem; display:grid; gap:.9rem; }
-  label { display:flex; flex-direction:column; font-family: system-ui, sans-serif; font-size:.85rem; color:var(--muted); gap:.25rem; }
-  input { font: inherit; font-size:1rem; padding:.55rem; border:1px solid var(--line); border-radius:6px; color:var(--ink); width:100%; }
-  .row { display:grid; grid-template-columns: 1fr 1fr; gap:.75rem; }
-  .inline { display:flex; gap:.5rem; }
-  .inline input { flex:1; }
-  button { font-family: system-ui, sans-serif; font-size:.95rem; padding:.6rem 1rem; border-radius:6px; border:1px solid var(--accent); cursor:pointer; background:#fff; color:var(--accent); }
-  button.primary { background:var(--accent); color:#fff; font-size:1rem; }
-  button.on { background:var(--mark); border-color:var(--mark); color:#fff; }
-  button:disabled { opacity:.55; cursor:not-allowed; }
-  input:focus-visible, button:focus-visible { outline: 3px solid #9cc7b0; outline-offset: 1px; }
-  .hint { font-family: system-ui, sans-serif; font-size:.85rem; color:var(--muted); margin:0; }
-  .warn, .error { color:#9b1c12; }
-  #status { font-family: system-ui, sans-serif; color:var(--muted); margin:.25rem 0 0; min-height:1.4em; }
+
+  /* hero */
+  .hero { position:relative; background:var(--forest); color:#f5f1e8; padding:2.2rem 1.25rem 4.5rem; overflow:hidden; }
+  .hero::before { content:""; position:absolute; inset:-40% -10% auto auto; width:640px; height:640px; border-radius:50%;
+    background: repeating-radial-gradient(circle at center, transparent 0 22px, rgba(245,241,232,.07) 22px 23px); }
+  .hero::after { content:""; position:absolute; inset:auto auto -55% -8%; width:520px; height:520px; border-radius:50%;
+    background: repeating-radial-gradient(circle at center, transparent 0 18px, rgba(79,154,115,.18) 18px 19px); }
+  .wrap { max-width:1140px; margin:0 auto; position:relative; z-index:1; }
+  .brand { display:flex; align-items:center; gap:.6rem; font-weight:600; letter-spacing:.02em; }
+  .brand svg { width:30px; height:30px; }
+  .hero h1 { font-family:var(--serif); font-weight:600; font-size:clamp(1.9rem, 4.5vw, 3rem); line-height:1.1; margin:1.4rem 0 .6rem; max-width:18ch; }
+  .hero p { margin:0; color:#cfd9d0; max-width:52ch; font-size:1.05rem; }
+
+  main { max-width:1140px; margin:-2.8rem auto 0; padding:0 1.25rem 4rem; position:relative; z-index:2; }
+  .layout { display:grid; grid-template-columns: minmax(0,1.7fr) minmax(300px,1fr); gap:1.1rem; align-items:start; }
+  @media (max-width:860px) { .layout { grid-template-columns:1fr; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:16px; box-shadow:var(--shadow); }
+
+  /* map */
+  .mapcard { position:relative; overflow:hidden; }
+  #map { height:600px; border-radius:16px; z-index:0; }
+  @media (max-width:860px) { #map { height:420px; } }
+  .searchbar { position:absolute; z-index:1000; top:.9rem; left:.9rem; right:3.9rem; max-width:420px; display:flex; background:#fff; border-radius:12px; box-shadow:var(--shadow); overflow:hidden; border:1px solid var(--line); }
+  .searchbar input { border:0; padding:.8rem .9rem; font:inherit; flex:1; min-width:0; background:transparent; }
+  .searchbar input:focus { outline:none; }
+  .searchbar:focus-within { border-color:var(--moss); box-shadow:0 0 0 3px rgba(79,154,115,.3), var(--shadow); }
+  .searchbar button { border:0; background:var(--moss); color:#fff; padding:0 1.1rem; font:inherit; font-weight:600; cursor:pointer; }
+  .searchbar button:hover { background:#285c43; }
+  .maphint { position:absolute; z-index:900; left:50%; bottom:1.2rem; transform:translateX(-50%); background:rgba(18,48,42,.88); color:#fff;
+    padding:.55rem 1rem; border-radius:999px; font-size:.9rem; pointer-events:none; white-space:nowrap; }
+
+  /* panel */
+  .panel { padding:1.25rem; display:grid; gap:1.3rem; }
+  .step { display:grid; grid-template-columns:auto 1fr; gap:.8rem; }
+  .num { width:28px; height:28px; border-radius:50%; background:var(--forest); color:#fff; display:grid; place-items:center; font-weight:600; font-size:.85rem; margin-top:.1rem; }
+  h2 { font-family:var(--serif); font-size:1.15rem; margin:0 0 .25rem; font-weight:600; }
+  .hint { color:var(--muted); font-size:.88rem; margin:0; }
+  .info { margin:.7rem 0 0; padding:.6rem .75rem; border-radius:10px; background:#eef3ec; color:var(--moss); font-size:.88rem; font-weight:500; }
+  .info.warn { background:#fde8e6; color:#9b1c12; }
+  .row2 { display:grid; grid-template-columns:1fr 1fr; gap:.7rem; margin-top:.6rem; }
+  label { display:flex; flex-direction:column; gap:.25rem; font-size:.8rem; font-weight:600; color:var(--muted); letter-spacing:.02em; text-transform:uppercase; }
+  input[type=date] { font:inherit; font-size:.95rem; padding:.55rem .6rem; border:1px solid var(--line); border-radius:10px; background:#fff; color:var(--ink); text-transform:none; letter-spacing:0; }
+  input[type=range] { width:100%; accent-color:var(--moss); }
+  .sizerow { display:flex; align-items:center; gap:.7rem; margin-top:.6rem; }
+  .sizerow output { min-width:3.5rem; font-weight:600; color:var(--moss); }
+  button { font:inherit; cursor:pointer; }
+  .btn { padding:.7rem 1rem; border-radius:10px; border:1.5px solid var(--moss); background:#fff; color:var(--moss); font-weight:600; transition:background .15s; }
+  .btn:hover { background:#eef3ec; }
+  .btn.on { background:var(--clay); border-color:var(--clay); color:#fff; }
+  .btn.primary { background:var(--moss); color:#fff; font-size:1.02rem; padding:.9rem 1rem; width:100%; }
+  .btn.primary:hover { background:#285c43; }
+  .btn:disabled { opacity:.5; cursor:not-allowed; }
+  .btn:focus-visible, input:focus-visible { outline:3px solid #9cc7b0; outline-offset:2px; }
+  .progress { display:flex; gap:.7rem; align-items:center; color:var(--muted); font-size:.92rem; min-height:1.6rem; }
+  .progress.error { color:#9b1c12; }
+  .spin { width:18px; height:18px; border-radius:50%; border:3px solid #cfe2d6; border-top-color:var(--moss); animation:sp .8s linear infinite; flex:none; }
+  @keyframes sp { to { transform:rotate(360deg); } }
+  @media (prefers-reduced-motion:reduce) { .spin { animation-duration:2.4s; } }
+
   /* results */
+  .results { padding:1.4rem; }
   .topbar { display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; }
-  .alert { padding:.9rem 1rem; border-radius:6px; font-family: system-ui, sans-serif; font-weight:600; margin-bottom:1rem; }
-  .alert.alert { background:#fde8e6; color:#9b1c12; }
-  .alert.watch { background:#fff3d6; color:#7a5300; }
-  .alert.clear { background:#e3f4e8; color:#1d6b3a; }
-  .tabs { display:flex; gap:.5rem; margin-bottom:.75rem; flex-wrap:wrap; }
-  .tabs button[aria-pressed="true"] { background:var(--accent); color:#fff; }
-  .cmp { position:relative; overflow:hidden; border-radius:6px; border:1px solid var(--line); touch-action:pan-y; cursor:ew-resize; user-select:none; max-width:900px; }
+  .topbar h2 { font-size:1.6rem; margin:0; }
+  .alertbox { display:flex; gap:.7rem; align-items:center; padding:1rem 1.1rem; border-radius:12px; font-weight:600; margin-bottom:1rem; }
+  .alertbox::before { content:""; width:12px; height:12px; border-radius:50%; background:currentColor; flex:none; }
+  .alertbox.alert { background:#fde8e6; color:#9b1c12; }
+  .alertbox.watch { background:#fff3d6; color:#7a5300; }
+  .alertbox.clear { background:#e3f4e8; color:#1d6b3a; }
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:.8rem; margin-bottom:1.2rem; }
+  .stat { background:#fff; border:1px solid var(--line); border-radius:12px; padding:.8rem 1rem; }
+  .stat b { display:block; font-family:var(--serif); font-size:1.7rem; line-height:1.2; }
+  .stat span { font-size:.78rem; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; font-weight:600; }
+  .seg { display:inline-flex; background:#ebe5d6; border-radius:12px; padding:4px; margin-bottom:1rem; flex-wrap:wrap; }
+  .seg button { border:0; background:transparent; padding:.55rem 1rem; border-radius:9px; font-weight:600; color:var(--muted); }
+  .seg button[aria-pressed="true"] { background:#fff; color:var(--forest); box-shadow:0 1px 3px rgba(0,0,0,.12); }
+  .cmp { position:relative; overflow:hidden; border-radius:14px; border:1px solid var(--line); cursor:ew-resize; user-select:none; touch-action:pan-y; max-width:960px; }
   .cmp img { display:block; width:100%; pointer-events:none; }
-  .cmp img.top { position:absolute; inset:0; clip-path: inset(0 50% 0 0); }
-  .cmp .line { position:absolute; top:0; bottom:0; left:50%; width:3px; margin-left:-1.5px; background:#fff; box-shadow:0 0 0 1px rgba(0,0,0,.35); }
-  .cmp .tag { position:absolute; top:.5rem; font-family:system-ui,sans-serif; font-size:.8rem; padding:.2rem .5rem; background:rgba(0,0,0,.6); color:#fff; border-radius:4px; }
-  .cmp .tag.l { left:.5rem; } .cmp .tag.r { right:.5rem; }
-  #pos { width:100%; max-width:900px; margin-top:.6rem; padding:0; border:0; accent-color:var(--accent); }
-  .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap:1rem; max-width:1000px; }
-  figure { margin:0; } figure img { width:100%; display:block; border-radius:6px; border:1px solid var(--line); }
-  figcaption { font-family: system-ui, sans-serif; font-size:.9rem; color:var(--muted); margin-top:.3rem; }
-  .meta { font-family: system-ui, sans-serif; font-size:.85rem; color:var(--muted); margin-top:1rem; max-width:900px; }
+  .cmp img.top { position:absolute; inset:0; clip-path:inset(0 50% 0 0); }
+  .cmp .line { position:absolute; top:0; bottom:0; left:50%; width:3px; margin-left:-1.5px; background:#fff; box-shadow:0 0 6px rgba(0,0,0,.45); }
+  .cmp .knob { position:absolute; top:50%; left:50%; width:44px; height:44px; margin:-22px 0 0 -22px; border-radius:50%; background:#fff; box-shadow:0 2px 10px rgba(0,0,0,.35); display:grid; place-items:center; color:var(--forest); font-weight:700; }
+  .cmp .tag { position:absolute; bottom:.7rem; padding:.3rem .65rem; font-size:.82rem; font-weight:600; background:rgba(18,48,42,.8); color:#fff; border-radius:8px; }
+  .cmp .tag.l { left:.7rem; } .cmp .tag.r { right:.7rem; }
+  #pos { width:100%; max-width:960px; margin-top:.7rem; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:1rem; max-width:1000px; }
+  figure { margin:0; } figure img { width:100%; display:block; border-radius:12px; border:1px solid var(--line); }
+  figcaption { font-size:.9rem; color:var(--muted); margin-top:.35rem; }
+  .meta { font-size:.85rem; color:var(--muted); margin:1.1rem 0 0; max-width:900px; }
+  a { color:var(--moss); font-weight:600; }
 </style>
 </head>
 <body>
+<header class="hero">
+  <div class="wrap">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><circle cx="16" cy="16" r="14" stroke="#4f9a73" stroke-width="2"/><circle cx="16" cy="16" r="8" stroke="#f5f1e8" stroke-width="2"/><circle cx="16" cy="16" r="2.6" fill="#c2410c"/></svg>
+      Plot Watch
+    </div>
+    <h1>See how land changes, from space.</h1>
+    <p>Pick any place on the map and two dates. We compare satellite images and highlight new construction or cleared land.</p>
+  </div>
+</header>
+
 <main>
-  <!-- PAGE 1: choose location and dates -->
-  <section id="pickView">
-    <h1>Plot Watch</h1>
-    <p class="sub">Search a city or click the map, choose an area and two dates, and see what changed.</p>
-    <div class="layout">
+  <!-- PAGE 1 -->
+  <section id="pickView" class="layout">
+    <div class="card mapcard">
+      <form id="searchForm" class="searchbar" role="search">
+        <input id="q" type="search" placeholder="Search a city, area or landmark" aria-label="Search a city, area or landmark">
+        <button type="submit">Search</button>
+      </form>
       <div id="map" role="application" aria-label="Map for choosing an area"></div>
-      <div class="panel">
-        <form id="searchForm" class="inline">
-          <input id="q" type="search" placeholder="Search a city or place, e.g. Kanpur" aria-label="Search a city or place">
-          <button type="submit">Search</button>
-        </form>
+      <div id="mapHint" class="maphint">Search a place, then click the map to choose an area</div>
+    </div>
+
+    <div class="card panel">
+      <div class="step">
+        <span class="num">1</span>
         <div>
-          <h2>1. Choose the area</h2>
+          <h2>Choose an area</h2>
           <p class="hint">Click the map to place a square, or draw your own rectangle.</p>
-          <div class="inline" style="margin-top:.5rem">
-            <label style="flex:1">Square size (km)
-              <input id="size" type="number" min="0.5" max="6" step="0.5" value="2">
-            </label>
-            <button id="draw" type="button" style="align-self:end">Draw an area</button>
+          <div class="sizerow">
+            <input id="size" type="range" min="0.5" max="6" step="0.5" value="2" aria-label="Square size in kilometres">
+            <output id="sizeOut">2 km</output>
           </div>
-          <p class="hint" id="areaInfo" style="margin-top:.5rem">No area selected yet.</p>
-          <p class="hint warn" id="areaWarn"></p>
+          <button id="draw" type="button" class="btn" style="margin-top:.7rem">Draw a custom area</button>
+          <p class="info" id="areaInfo">No area selected yet.</p>
         </div>
+      </div>
+
+      <div class="step">
+        <span class="num">2</span>
         <div>
-          <h2>2. Choose two dates</h2>
-          <div class="row">
-            <label>Before <input id="before" type="date" value="2020-02-15" required></label>
-            <label>After <input id="after" type="date" value="2025-02-15" required></label>
+          <h2>Pick two dates</h2>
+          <p class="hint">Use the same time of year for both, so seasons don't look like changes.</p>
+          <div class="row2">
+            <label>Before <input id="before" type="date" required></label>
+            <label>After <input id="after" type="date" required></label>
           </div>
-          <p class="hint" style="margin-top:.4rem">Use the same season for both dates. We pick the clearest image within 20 days of each.</p>
         </div>
-        <button id="go" class="primary" type="button">Compare images</button>
-        <button id="psit" type="button">Use PSIT campus</button>
-        <p id="status" role="status"></p>
+      </div>
+
+      <div>
+        <button id="go" class="btn primary" type="button">Compare images</button>
+        <div id="status" class="progress" role="status" style="margin-top:.8rem"></div>
       </div>
     </div>
   </section>
 
-  <!-- PAGE 2: before / after results -->
-  <section id="resultView" class="hidden">
+  <!-- PAGE 2 -->
+  <section id="resultView" class="card results hidden">
     <div class="topbar">
-      <h1>Before and after</h1>
-      <button id="back" type="button">&larr; New search</button>
+      <h2>Before and after</h2>
+      <button id="back" type="button" class="btn">&larr; New search</button>
     </div>
-    <div id="alert" class="alert"></div>
-    <div class="tabs" role="group" aria-label="View mode">
+    <div id="alert" class="alertbox"></div>
+    <div class="stats" id="stats"></div>
+
+    <div class="seg" role="group" aria-label="View mode">
       <button type="button" data-mode="slider" aria-pressed="true">Slider</button>
       <button type="button" data-mode="side" aria-pressed="false">Side by side</button>
       <button type="button" data-mode="change" aria-pressed="false">Change map</button>
@@ -112,11 +187,11 @@
         <img id="imgAfter" alt="After image">
         <img id="imgBefore" class="top" alt="Before image">
         <div class="line" id="line"></div>
+        <div class="knob" id="knob" aria-hidden="true">&harr;</div>
         <span class="tag l" id="tagBefore"></span><span class="tag r" id="tagAfter"></span>
       </div>
       <input id="pos" type="range" min="0" max="100" value="50" aria-label="Slide between before and after">
     </div>
-
     <div id="modeSide" class="grid hidden"></div>
     <div id="modeChange" class="grid hidden"></div>
     <p class="meta" id="meta"></p>
@@ -127,10 +202,18 @@
 <script>
 const $ = id => document.getElementById(id);
 const KM_LAT = 110.57, KM_LON = 111.32, MAX_KM = 6, MIN_KM = 0.3;
-let bounds = null, rect = null, tmp = null, drawMode = false, drawStart = null, skipClick = false, busy = false;
+let bounds = null, rect = null, tmp = null, drawMode = false, drawStart = null, skipClick = false, busy = false, timer = null;
+
+/* default dates: same season, two years apart */
+(function () {
+  const iso = d => d.toISOString().slice(0, 10);
+  const a = new Date(); a.setDate(a.getDate() - 20);
+  const b = new Date(a); b.setFullYear(b.getFullYear() - 2);
+  $("after").value = iso(a); $("before").value = iso(b); $("after").max = iso(new Date());
+})();
 
 /* ---------- map ---------- */
-const map = L.map("map").setView([26.4503, 80.1921], 13);
+const map = L.map("map").setView([22.5, 79], 5);
 const sat = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
   { attribution: "Imagery &copy; Esri", maxZoom: 19 }).addTo(map);
 const street = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",
@@ -143,36 +226,35 @@ function squareAround(c, km) {
 }
 function sizeKm(b) {
   const lat = b.getCenter().lat;
-  return { w: (b.getEast() - b.getWest()) * KM_LON * Math.cos(lat * Math.PI / 180),
-           h: (b.getNorth() - b.getSouth()) * KM_LAT };
+  return { w: (b.getEast() - b.getWest()) * KM_LON * Math.cos(lat * Math.PI / 180), h: (b.getNorth() - b.getSouth()) * KM_LAT };
 }
-function updateGo() {
-  const ok = bounds && !$("areaWarn").textContent;
-  $("go").disabled = busy || !ok;
-}
+let valid = false;
+function updateGo() { $("go").disabled = busy || !valid; }
 function setBounds(b) {
   bounds = b;
-  if (rect) rect.setBounds(b);
-  else rect = L.rectangle(b, { color: "#c2410c", weight: 2, fillOpacity: .12 }).addTo(map);
+  if (rect) rect.setBounds(b); else rect = L.rectangle(b, { color: "#c2410c", weight: 2, fillOpacity: .15 }).addTo(map);
   const { w, h } = sizeKm(b), c = b.getCenter();
-  $("areaInfo").textContent = `Selected: ${w.toFixed(1)} \u00d7 ${h.toFixed(1)} km around ${c.lat.toFixed(4)}, ${c.lng.toFixed(4)}`;
-  $("areaWarn").textContent = Math.max(w, h) > MAX_KM ? `Too large. Keep each side under ${MAX_KM} km.`
-    : Math.min(w, h) < MIN_KM ? `Too small. Keep each side at least ${MIN_KM} km.` : "";
+  const big = Math.max(w, h) > MAX_KM, small = Math.min(w, h) < MIN_KM;
+  valid = !big && !small;
+  const info = $("areaInfo");
+  info.classList.toggle("warn", !valid);
+  info.textContent = big ? `Too large (${w.toFixed(1)} \u00d7 ${h.toFixed(1)} km). Keep each side under ${MAX_KM} km.`
+    : small ? `Too small. Keep each side at least ${MIN_KM} km.`
+    : `${w.toFixed(1)} \u00d7 ${h.toFixed(1)} km selected, centred at ${c.lat.toFixed(4)}, ${c.lng.toFixed(4)}`;
+  $("mapHint").classList.add("hidden");
   updateGo();
 }
+updateGo();
 
-map.on("click", e => {
-  if (drawMode || skipClick) return;
-  setBounds(squareAround(e.latlng, +$("size").value || 2));
-});
+map.on("click", e => { if (drawMode || skipClick) return; setBounds(squareAround(e.latlng, +$("size").value)); });
 $("size").addEventListener("input", () => {
-  if (bounds) setBounds(squareAround(bounds.getCenter(), +$("size").value || 2));
+  $("sizeOut").textContent = $("size").value + " km";
+  if (bounds) setBounds(squareAround(bounds.getCenter(), +$("size").value));
 });
 
-/* draw your own rectangle */
 function stopDraw() {
   drawMode = false; drawStart = null; map.dragging.enable();
-  $("draw").classList.remove("on"); $("draw").textContent = "Draw an area";
+  $("draw").classList.remove("on"); $("draw").textContent = "Draw a custom area";
   map.getContainer().style.cursor = "";
 }
 $("draw").addEventListener("click", () => {
@@ -195,36 +277,39 @@ map.on("mouseup", e => {
   if (sizeKm(b).w > 0.05) setBounds(b);
 });
 
-/* search a city or place */
+/* ---------- status helpers ---------- */
+function say(text, kind) {
+  clearInterval(timer);
+  const s = $("status"); s.className = "progress" + (kind === "error" ? " error" : "");
+  s.innerHTML = (kind === "busy" ? '<span class="spin"></span>' : "") + `<span>${text}</span>`;
+}
+function startProgress() {
+  const msgs = ["Finding the clearest satellite images\u2026", "Downloading your area\u2026", "Comparing the two dates\u2026", "Almost done\u2026"];
+  let i = 0; say(msgs[0], "busy");
+  timer = setInterval(() => { i = Math.min(i + 1, msgs.length - 1); say(msgs[i], "busy"); }, 12000);
+}
+
+/* ---------- search ---------- */
 $("searchForm").addEventListener("submit", async e => {
   e.preventDefault();
   const q = $("q").value.trim();
   if (!q) return;
-  $("status").className = ""; $("status").textContent = "Searching\u2026";
+  say("Searching\u2026", "busy");
   try {
     const r = await fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&q=" + encodeURIComponent(q));
     const j = await r.json();
-    if (!j.length) { $("status").textContent = "Place not found. Try a different name."; return; }
+    if (!j.length) { say("Place not found. Try a different name.", "error"); return; }
     const p = j[0], bb = p.boundingbox.map(Number);
     map.fitBounds([[bb[0], bb[2]], [bb[1], bb[3]]]);
-    setBounds(squareAround(L.latLng(+p.lat, +p.lon), +$("size").value || 2));
-    $("status").textContent = p.display_name + ". Click the map to move the square, or draw your own area.";
-  } catch (err) {
-    $("status").className = "error"; $("status").textContent = "Search failed. Check your connection.";
-  }
-});
-
-$("psit").addEventListener("click", () => {
-  const c = L.latLng(26.4503, 80.1921);
-  map.setView(c, 14); setBounds(squareAround(c, +$("size").value || 2));
+    setBounds(squareAround(L.latLng(+p.lat, +p.lon), +$("size").value));
+    say("Found " + p.display_name.split(",").slice(0, 2).join(",") + ". Click the map to move the square.");
+  } catch (err) { say("Search failed. Check your connection.", "error"); }
 });
 
 /* ---------- compare ---------- */
 $("go").addEventListener("click", async () => {
-  if (!bounds) { $("status").textContent = "Choose an area on the map first."; return; }
-  busy = true; updateGo();
-  $("status").className = "";
-  $("status").textContent = "Fetching satellite images. This takes about 30 to 90 seconds.";
+  if (!bounds) return say("Choose an area on the map first.", "error");
+  busy = true; updateGo(); startProgress();
   try {
     const resp = await fetch("/api/analyze", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -235,35 +320,32 @@ $("go").addEventListener("click", async () => {
     });
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || "Something went wrong.");
-    showResult(data);
-    $("status").textContent = "";
-  } catch (err) {
-    $("status").className = "error"; $("status").textContent = err.message;
-  } finally { busy = false; updateGo(); }
+    showResult(data); say("");
+  } catch (err) { say(err.message, "error"); }
+  finally { busy = false; updateGo(); }
 });
 
-/* ---------- results page ---------- */
+/* ---------- results ---------- */
 function showView(name) {
   $("pickView").classList.toggle("hidden", name !== "pick");
   $("resultView").classList.toggle("hidden", name !== "result");
   if (name === "pick") map.invalidateSize();
-  window.scrollTo(0, 0);
+  window.scrollTo({ top: 0 });
 }
 $("back").addEventListener("click", () => showView("pick"));
 
 function setMode(mode) {
-  document.querySelectorAll(".tabs button").forEach(b => b.setAttribute("aria-pressed", b.dataset.mode === mode));
+  document.querySelectorAll(".seg button").forEach(b => b.setAttribute("aria-pressed", b.dataset.mode === mode));
   $("modeSlider").classList.toggle("hidden", mode !== "slider");
   $("modeSide").classList.toggle("hidden", mode !== "side");
   $("modeChange").classList.toggle("hidden", mode !== "change");
 }
-document.querySelectorAll(".tabs button").forEach(b => b.addEventListener("click", () => setMode(b.dataset.mode)));
+document.querySelectorAll(".seg button").forEach(b => b.addEventListener("click", () => setMode(b.dataset.mode)));
 
 function setPos(v) {
   v = Math.max(0, Math.min(100, v));
   $("imgBefore").style.clipPath = `inset(0 ${100 - v}% 0 0)`;
-  $("line").style.left = v + "%";
-  $("pos").value = v;
+  $("line").style.left = v + "%"; $("knob").style.left = v + "%"; $("pos").value = v;
 }
 $("pos").addEventListener("input", e => setPos(+e.target.value));
 let dragging = false;
@@ -274,20 +356,21 @@ $("cmp").addEventListener("pointerup", () => dragging = false);
 
 function showResult(d) {
   const u = d.image_urls, bd = d.before_scene.date, ad = d.after_scene.date;
-  $("alert").className = "alert " + d.level; $("alert").textContent = d.alert;
+  $("alert").className = "alertbox " + d.level; $("alert").textContent = d.alert;
+  $("stats").innerHTML = [
+    [d.change_percent + "%", "Area changed"], [d.area_km[0] + " \u00d7 " + d.area_km[1] + " km", "Area size"],
+    [bd, "Before image"], [ad, "After image"]
+  ].map(([v, l]) => `<div class="stat"><b>${v}</b><span>${l}</span></div>`).join("");
   $("imgBefore").src = u.before; $("imgAfter").src = u.after;
   $("tagBefore").textContent = "Before \u00b7 " + bd; $("tagAfter").textContent = "After \u00b7 " + ad;
   const fig = (src, cap) => `<figure><img src="${src}" alt="${cap}"><figcaption>${cap}</figcaption></figure>`;
   $("modeSide").innerHTML = fig(u.before, "Before (" + bd + ")") + fig(u.after, "After (" + ad + ")");
-  $("modeChange").innerHTML = fig(u.change, "Detected change in red (" + d.change_percent + "% of the area)") +
+  $("modeChange").innerHTML = fig(u.change, "Detected change in red") +
     `<p class="meta"><a href="${u.change}" download="change-map.png">Download change map</a></p>`;
-  $("meta").textContent = `Area: ${d.area_km[0]} \u00d7 ${d.area_km[1]} km. ` +
-    `Images used: ${bd} and ${ad} (clearest Sentinel-2 scenes near your dates, 10 m resolution). ` +
-    `This is a screening result; verify important findings on the ground.`;
+  $("meta").textContent = "Images are the clearest Sentinel-2 scenes near your chosen dates, at 10 m resolution. " +
+    "This is a screening result, so verify important findings on the ground.";
   setPos(50); setMode("slider"); showView("result");
 }
-
-$("after").max = new Date().toISOString().slice(0, 10);
 </script>
 </body>
 </html>
