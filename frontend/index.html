@@ -212,6 +212,7 @@
     <div id="modeChange" class="grid hidden"></div>
     <div id="modeMap" class="hidden">
       <div id="resMap"></div>
+      <p id="mapNote" class="hint warn-text" style="margin-top:.5rem"></p>
       <label style="max-width:320px;margin-top:.7rem">Change overlay opacity
         <input id="ovOp" type="range" min="0" max="100" value="80">
       </label>
@@ -385,15 +386,31 @@ $("checkClouds").addEventListener("click", async () => {
 /* ---------- sharp map view ---------- */
 let resMap = null, ovLayer = null, lastResult = null;
 function initResMap() {
-  const [w, s, e, n] = lastResult.bbox, b = [[s, w], [n, e]];
-  if (!resMap) {
-    resMap = L.map("resMap");
-    L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-      { attribution: "Imagery &copy; Esri", maxZoom: 19 }).addTo(resMap);
+  const note = $("mapNote");
+  note.textContent = "";
+  try {
+    const d = lastResult;
+    const bb = (d.bbox && d.bbox.length === 4) ? d.bbox
+      : [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()];
+    const [w, s, e, n] = bb, b = [[s, w], [n, e]];
+    if (!resMap) {
+      resMap = L.map("resMap");
+      L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        { attribution: "Imagery &copy; Esri", maxZoom: 19 }).addTo(resMap);
+    }
+    if (ovLayer) { resMap.removeLayer(ovLayer); ovLayer = null; }
+    if (d.image_urls && d.image_urls.overlay) {
+      ovLayer = L.imageOverlay(d.image_urls.overlay, b, { opacity: +$("ovOp").value / 100 });
+      ovLayer.on("error", () => { note.textContent = "The red overlay image could not be loaded. Update detect.py, restart the server and run a new comparison."; });
+      ovLayer.addTo(resMap);
+    } else {
+      note.textContent = "The change overlay file is missing. Update detect.py and app.py, restart the server, then run a new comparison.";
+    }
+    resMap.invalidateSize();
+    resMap.fitBounds(b);
+  } catch (err) {
+    note.textContent = "Map error: " + err.message;
   }
-  if (ovLayer) resMap.removeLayer(ovLayer);
-  ovLayer = L.imageOverlay(lastResult.image_urls.overlay, b, { opacity: +$("ovOp").value / 100 }).addTo(resMap);
-  resMap.invalidateSize(); resMap.fitBounds(b);
 }
 $("ovOp").addEventListener("input", () => ovLayer && ovLayer.setOpacity(+$("ovOp").value / 100));
 
