@@ -10,6 +10,8 @@ from flask import Flask, jsonify, request, send_from_directory
 
 from fetch import analyze
 
+MAX_KM, MIN_KM = 6.0, 0.3  # allowed side length of the selected area
+
 app = Flask(__name__, static_folder="../frontend", static_url_path="")
 
 
@@ -22,17 +24,21 @@ def home():
 def api_analyze():
     d = request.get_json(force=True)
     try:
-        lat, lon = float(d["lat"]), float(d["lon"])
-        size_km = float(d.get("size_km", 2))
+        west, south, east, north = [float(x) for x in d["bbox"]]
         before = date.fromisoformat(d["before_date"])
         after = date.fromisoformat(d["after_date"])
-    except (KeyError, ValueError):
-        return jsonify(error="Please fill in latitude, longitude and both dates."), 400
+    except (KeyError, ValueError, TypeError):
+        return jsonify(error="Please choose an area on the map and both dates."), 400
 
-    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
-        return jsonify(error="Latitude or longitude is out of range."), 400
-    if not (0.5 <= size_km <= 5):
-        return jsonify(error="Area size must be between 0.5 and 5 km."), 400
+    if not (-180 <= west < east <= 180 and -90 <= south < north <= 90):
+        return jsonify(error="The selected area is not valid."), 400
+    lat = (south + north) / 2
+    w_km = (east - west) * 111.32 * math.cos(math.radians(lat))
+    h_km = (north - south) * 110.57
+    if max(w_km, h_km) > MAX_KM:
+        return jsonify(error=f"Area too large. Keep each side under {MAX_KM:g} km."), 400
+    if min(w_km, h_km) < MIN_KM:
+        return jsonify(error=f"Area too small. Keep each side at least {MIN_KM:g} km."), 400
     if before >= after:
         return jsonify(error="The 'before' date must be earlier than the 'after' date."), 400
     if after > date.today():
@@ -40,20 +46,16 @@ def api_analyze():
     if before < date(2017, 1, 1):
         return jsonify(error="Sentinel-2 images are available from 2017 onward."), 400
 
-    half = size_km / 2
-    dlat = half / 111.0
-    dlon = half / (111.0 * math.cos(math.radians(lat)))
-    bbox = [lon - dlon, lat - dlat, lon + dlon, lat + dlat]
     name = "run_" + uuid.uuid4().hex[:8]
-
     try:
-        res = analyze(bbox, before.isoformat(), after.isoformat(), name)
+        res = analyze([west, south, east, north], before.isoformat(), after.isoformat(), name)
     except RuntimeError as e:
         return jsonify(error=str(e)), 404
     except Exception as e:  # network or data problems
         return jsonify(error=f"Could not process this request: {e}"), 500
 
     res["image_urls"] = {k: f"results/{name}/{v}" for k, v in res["images"].items()}
+    res["area_km"] = [round(w_km, 1), round(h_km, 1)]
     return jsonify(res)
 
 
