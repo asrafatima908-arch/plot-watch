@@ -1,17 +1,17 @@
 """
-Plot Watch - automatically fetch Sentinel-2 images for a plot, then run detection.
+Plot Watch - fetch Sentinel-2 crops for a plot (no account needed) and run detection.
+Uses Microsoft Planetary Computer; downloads only the plot area, not the 1 GB product.
 
-No account needed. Uses Microsoft Planetary Computer (free Sentinel-2 L2A archive)
-and downloads ONLY the plot area (a few MB), not the full 1 GB product.
-
-Usage:
-  python fetch.py --bbox 80.30 26.45 80.31 26.46 \
-    --before-range 2024-01-01/2024-02-28 \
-    --after-range  2026-01-01/2026-02-28 \
-    --name plot_changed --out ../frontend/results
+CLI:
+  python fetch.py --bbox 80.18 26.44 80.20 26.46 \
+    --before-range 2020-01-01/2020-02-28 --after-range 2024-01-01/2024-02-28 \
+    --name test --out ../frontend/results
+Used by app.py through analyze().
 """
 import argparse
 import json
+import shutil
+from datetime import date, timedelta
 from pathlib import Path
 
 import rasterio
@@ -27,7 +27,7 @@ STAC_URL = "https://planetarycomputer.microsoft.com/api/stac/v1"
 
 
 def best_scene(bbox, date_range, max_cloud):
-    """Return the least-cloudy Sentinel-2 L2A scene covering bbox in date_range."""
+    """Least-cloudy Sentinel-2 L2A scene covering bbox within date_range."""
     catalog = Client.open(STAC_URL, modifier=planetary_computer.sign_inplace)
     search = catalog.search(
         collections=["sentinel-2-l2a"],
@@ -38,20 +38,22 @@ def best_scene(bbox, date_range, max_cloud):
     items = list(search.items())
     if not items:
         raise RuntimeError(
-            f"No scenes under {max_cloud}% cloud for {date_range}. "
-            "Try a wider date range or a higher --max-cloud."
+            f"No clear satellite image found for {date_range}. "
+            "Try another date, or a wider window."
         )
     return min(items, key=lambda i: i.properties["eo:cloud_cover"])
 
 
-def download_crop(href, bbox, out_path):
-    """Download only the bbox window of a remote GeoTIFF and save it locally."""
+def download_crop(href, bbox, out_path, offset=0):
+    """Download only the bbox window of a remote GeoTIFF."""
     with rasterio.open(href) as src:
         l, b, r, t = transform_bounds("EPSG:4326", src.crs, *bbox)
         w = from_bounds(l, b, r, t, src.transform)
         win = Window(int(round(w.col_off)), int(round(w.row_off)),
                      max(2, int(round(w.width))), max(2, int(round(w.height))))
         data = src.read(1, window=win)
+        if offset:  # processing baseline >= 4.0 adds +1000 to every value
+            data = (data.astype("int32") - offset).clip(0).astype(src.dtypes[0])
         profile = src.profile.copy()
         profile.update(driver="GTiff", height=data.shape[0], width=data.shape[1],
                        transform=src.window_transform(win), count=1)
@@ -59,24 +61,50 @@ def download_crop(href, bbox, out_path):
         dst.write(data, 1)
 
 
-def fetch_scene(bbox, date_range, out_dir, max_cloud=10):
+def fetch_scene(bbox, date_range, out_dir, max_cloud=20):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     item = best_scene(bbox, date_range, max_cloud)
-    print(f"Using scene {item.id} "
-          f"(date {item.datetime.date()}, cloud {item.properties['eo:cloud_cover']:.1f}%)")
+    baseline = float(item.properties.get("s2:processing_baseline", "0"))
+    offset = 1000 if baseline >= 4.0 else 0
+    print(f"Using {item.id} (date {item.datetime.date()}, "
+          f"cloud {item.properties['eo:cloud_cover']:.1f}%, offset {offset})")
     for band in BANDS:
-        download_crop(item.assets[band].href, bbox, out_dir / f"scene_{band}.tif")
+        download_crop(item.assets[band].href, bbox,
+                      out_dir / f"scene_{band}.tif", offset)
     return {"scene": item.id, "date": str(item.datetime.date()),
             "cloud": round(item.properties["eo:cloud_cover"], 1)}
+
+
+def window_around(day, days):
+    d = date.fromisoformat(day)
+    return f"{d - timedelta(days=days)}/{d + timedelta(days=days)}"
+
+
+def analyze(bbox, before_date, after_date, name, out_dir="../frontend/results",
+            window_days=20, max_cloud=20, ndvi_drop=0.15, ndbi_rise=0.05):
+    """Fetch the best image near each date, run detection, return result dict."""
+    work = Path("data") / name
+    try:
+        info_b = fetch_scene(bbox, window_around(before_date, window_days),
+                             work / "before", max_cloud)
+        info_a = fetch_scene(bbox, window_around(after_date, window_days),
+                             work / "after", max_cloud)
+        res = check_plot(work / "before", work / "after", bbox, name, out_dir,
+                         ndvi_drop=ndvi_drop, ndbi_rise=ndbi_rise)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)  # keep storage small
+    res["before_scene"], res["after_scene"] = info_b, info_a
+    (Path(out_dir) / name / "result.json").write_text(json.dumps(res, indent=2))
+    return res
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--bbox", nargs=4, type=float, required=True,
                     metavar=("MIN_LON", "MIN_LAT", "MAX_LON", "MAX_LAT"))
-    ap.add_argument("--before-range", required=True, help="e.g. 2024-01-01/2024-02-28")
-    ap.add_argument("--after-range", required=True, help="e.g. 2026-01-01/2026-02-28")
+    ap.add_argument("--before-range", required=True)
+    ap.add_argument("--after-range", required=True)
     ap.add_argument("--name", required=True)
     ap.add_argument("--out", default="../frontend/results")
     ap.add_argument("--max-cloud", type=float, default=10)
@@ -84,14 +112,11 @@ if __name__ == "__main__":
     ap.add_argument("--ndbi-rise", type=float, default=0.05)
     a = ap.parse_args()
 
-    print("Fetching BEFORE image...")
-    info_b = fetch_scene(a.bbox, a.before_range, f"data/{a.name}/before", a.max_cloud)
-    print("Fetching AFTER image...")
-    info_a = fetch_scene(a.bbox, a.after_range, f"data/{a.name}/after", a.max_cloud)
-
-    print("Running change detection...")
-    res = check_plot(f"data/{a.name}/before", f"data/{a.name}/after", a.bbox,
-                     a.name, a.out, ndvi_drop=a.ndvi_drop, ndbi_rise=a.ndbi_rise)
+    work = Path("data") / a.name
+    info_b = fetch_scene(a.bbox, a.before_range, work / "before", a.max_cloud)
+    info_a = fetch_scene(a.bbox, a.after_range, work / "after", a.max_cloud)
+    res = check_plot(work / "before", work / "after", a.bbox, a.name, a.out,
+                     ndvi_drop=a.ndvi_drop, ndbi_rise=a.ndbi_rise)
     res["before_scene"], res["after_scene"] = info_b, info_a
     (Path(a.out) / a.name / "result.json").write_text(json.dumps(res, indent=2))
     print(json.dumps(res, indent=2))
