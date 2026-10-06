@@ -1,13 +1,3 @@
-"""
-Plot Watch - fetch Sentinel-2 crops for a plot (no account needed) and run detection.
-Uses Microsoft Planetary Computer; downloads only the plot area, not the 1 GB product.
-
-CLI:
-  python fetch.py --bbox 80.18 26.44 80.20 26.46 \
-    --before-range 2020-01-01/2020-02-28 --after-range 2024-01-01/2024-02-28 \
-    --name test --out ../frontend/results
-Used by app.py through analyze().
-"""
 import argparse
 import json
 import shutil
@@ -27,7 +17,6 @@ STAC_URL = "https://planetarycomputer.microsoft.com/api/stac/v1"
 
 
 def best_scene(bbox, date_range, max_cloud):
-    """Least-cloudy Sentinel-2 L2A scene covering bbox within date_range."""
     catalog = Client.open(STAC_URL, modifier=planetary_computer.sign_inplace)
     search = catalog.search(
         collections=["sentinel-2-l2a"],
@@ -45,14 +34,13 @@ def best_scene(bbox, date_range, max_cloud):
 
 
 def download_crop(href, bbox, out_path, offset=0):
-    """Download only the bbox window of a remote GeoTIFF."""
     with rasterio.open(href) as src:
         l, b, r, t = transform_bounds("EPSG:4326", src.crs, *bbox)
         w = from_bounds(l, b, r, t, src.transform)
         win = Window(int(round(w.col_off)), int(round(w.row_off)),
                      max(2, int(round(w.width))), max(2, int(round(w.height))))
         data = src.read(1, window=win)
-        if offset:  # processing baseline >= 4.0 adds +1000 to every value
+        if offset:
             data = (data.astype("int32") - offset).clip(0).astype(src.dtypes[0])
         profile = src.profile.copy()
         profile.update(driver="GTiff", height=data.shape[0], width=data.shape[1],
@@ -83,7 +71,6 @@ def window_around(day, days):
 
 def analyze(bbox, before_date, after_date, name, out_dir="../frontend/results",
             window_days=20, max_cloud=20, ndvi_drop=0.15, ndbi_rise=0.05):
-    """Fetch the best image near each date, run detection, return result dict."""
     work = Path("data") / name
     try:
         info_b = fetch_scene(bbox, window_around(before_date, window_days),
@@ -93,7 +80,7 @@ def analyze(bbox, before_date, after_date, name, out_dir="../frontend/results",
         res = check_plot(work / "before", work / "after", bbox, name, out_dir,
                          ndvi_drop=ndvi_drop, ndbi_rise=ndbi_rise)
     finally:
-        shutil.rmtree(work, ignore_errors=True)  # keep storage small
+        shutil.rmtree(work, ignore_errors=True)
     res["before_scene"], res["after_scene"] = info_b, info_a
     (Path(out_dir) / name / "result.json").write_text(json.dumps(res, indent=2))
     return res
