@@ -122,13 +122,17 @@ def check_plot(before_dir, after_dir, bbox, name, out_dir,
     plt.imsave(out / "before.png", upscale(rgb(before)))
     plt.imsave(out / "after.png", big_after)
     plt.imsave(out / "change.png", overlay)
+    rgba = np.zeros(big_mask.shape + (4,), dtype=np.float32)
+    rgba[big_mask] = [1.0, 0.1, 0.1, 0.6]  # transparent PNG for the map view
+    plt.imsave(out / "change_overlay.png", rgba)
 
     result = {
         "plot": name,
         "change_percent": round(pct, 1),
         "level": level,
         "alert": alert,
-        "images": {"before": "before.png", "after": "after.png", "change": "change.png"},
+        "images": {"before": "before.png", "after": "after.png", "change": "change.png",
+                   "overlay": "change_overlay.png"},
     }
     (out / "result.json").write_text(json.dumps(result, indent=2))
     return result
