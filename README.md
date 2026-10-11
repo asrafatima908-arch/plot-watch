@@ -87,7 +87,7 @@ Results are written to `frontend/results/` and temporary downloads to `backend/d
 
 ## Credits and data sources
 
-- Builds on our Smart India Hackathon project, **Satellite Change Detection System**, developed as a team.
+- Plot Watch is a solo project. It builds on the idea behind my team's Smart India Hackathon project, **Satellite Change Detection System**; the code in this repository was written separately for Plot Watch.
 - Contains modified Copernicus Sentinel data (European Space Agency / European Commission).
 - Landsat imagery courtesy of the U.S. Geological Survey and NASA.
 - Data access through Microsoft Planetary Computer.
@@ -95,4 +95,4 @@ Results are written to `frontend/results/` and temporary downloads to `backend/d
 
 ## Author
 
-Asra Fatima
+Asra Fatima, solo developer
