@@ -6,3 +6,4 @@ pystac-client
 planetary-computer
 flask
 reportlab
+gunicorn

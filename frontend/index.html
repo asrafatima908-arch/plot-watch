@@ -114,6 +114,26 @@
   .use { font-size:.72rem; background:#e3f4e8; color:#1d6b3a; padding:.1rem .45rem; border-radius:6px; }
   .warn-text { color:#9b1c12; }
   #resMap { height:540px; max-width:960px; border-radius:14px; border:1px solid var(--line); }
+  select { font:inherit; padding:.55rem; border:1px solid var(--line); border-radius:10px; background:#fff; color:var(--ink); text-transform:none; letter-spacing:0; width:100%; }
+  a.btn { text-decoration:none; display:inline-block; }
+  .insight { display:grid; grid-template-columns:auto 1.2fr 1.3fr; gap:1rem; margin-bottom:1.2rem; align-items:start; }
+  @media (max-width:900px) { .insight { grid-template-columns:1fr; } }
+  .score { background:#fff; border:1px solid var(--line); border-radius:14px; padding:1rem 1.4rem; text-align:center; min-width:150px; }
+  .score b { font-family:var(--serif); font-size:3rem; line-height:1; }
+  .score small { display:block; margin-top:.3rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em; font-size:.78rem; }
+  .score.low { color:#1d6b3a; } .score.moderate { color:#7a5300; } .score.high { color:#b45309; } .score.critical { color:#9b1c12; }
+  .why, .brk { background:#fff; border:1px solid var(--line); border-radius:14px; padding:1rem; }
+  .insight h3 { font-size:.78rem; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:0 0 .3rem; }
+  .insight p { margin:0 0 .8rem; font-size:.9rem; }
+  .brow { display:grid; grid-template-columns:12px 1fr 70px 3rem; gap:.5rem; align-items:center; font-size:.85rem; padding:.2rem 0; }
+  .brow i { width:12px; height:12px; border-radius:3px; }
+  .bbar { height:6px; background:#ebe5d6; border-radius:99px; overflow:hidden; } .bbar b { display:block; height:100%; }
+  .brow em { font-style:normal; text-align:right; font-weight:600; }
+  .hrow { display:flex; justify-content:space-between; gap:1rem; flex-wrap:wrap; padding:.8rem 0; border-top:1px solid var(--line); }
+  .hbtns { display:flex; gap:.4rem; flex-wrap:wrap; align-items:center; }
+  .hbtns .btn { padding:.4rem .8rem; font-size:.85rem; }
+  details.why-sat { margin-top:.6rem; font-size:.85rem; color:var(--muted); }
+  details.why-sat summary { cursor:pointer; color:var(--moss); font-weight:600; }
   a { color:var(--moss); font-weight:600; }
 </style>
 </head>
@@ -170,6 +190,16 @@
               <input id="maxCloud" type="range" min="5" max="60" step="5" value="20">
             </label>
           </div>
+          <label style="margin-top:.9rem">Image source
+            <select id="source">
+              <option value="auto">Auto (Sentinel-2 10 m; Landsat 30 m before 2017)</option>
+              <option value="sentinel">Sentinel-2 only (2017 onward)</option>
+              <option value="landsat">Landsat only (1985 onward)</option>
+            </select>
+          </label>
+          <details class="why-sat"><summary>Why two satellites?</summary>
+            <p style="margin:.4rem 0 0">Sentinel-2 gives sharp 10 m pixels, but its dependable archive starts around 2017. Landsat has imaged the Earth since the 1980s, with softer 30 m pixels, so it is used for older dates. Both dates in one comparison always use the same satellite, so the result stays fair.</p>
+          </details>
           <button id="checkClouds" type="button" class="btn" style="margin-top:.7rem">Check cloud cover</button>
           <div id="clouds" class="clouds" aria-live="polite"></div>
         </div>
@@ -180,17 +210,23 @@
         <div id="status" class="progress" role="status" style="margin-top:.8rem"></div>
       </div>
     </div>
+    <div class="card" style="grid-column:1/-1; padding:1.25rem">
+      <h2>Saved analyses</h2>
+      <p class="hint">Every finished comparison is saved here, with its PDF report and data file.</p>
+      <div id="histList"></div>
+    </div>
   </section>
 
   <!-- PAGE 2 -->
   <section id="resultView" class="card results hidden">
     <div class="topbar">
       <h2>Before and after</h2>
-      <button id="back" type="button" class="btn">&larr; New search</button>
+      <div style="display:flex;gap:.6rem;flex-wrap:wrap"><a id="pdfLink" class="btn" href="#" target="_blank" rel="noopener">Download PDF report</a><button id="back" type="button" class="btn">&larr; New search</button></div>
     </div>
     <div id="alert" class="alertbox"></div>
     <div class="stats" id="stats"></div>
 
+    <div id="insight"></div>
     <div class="seg" role="group" aria-label="View mode">
       <button type="button" data-mode="slider" aria-pressed="true">Slider</button>
       <button type="button" data-mode="side" aria-pressed="false">Side by side</button>
@@ -233,7 +269,7 @@ let bounds = null, rect = null, tmp = null, drawMode = false, drawStart = null, 
   const iso = d => d.toISOString().slice(0, 10);
   const a = new Date(); a.setDate(a.getDate() - 20);
   const b = new Date(a); b.setFullYear(b.getFullYear() - 2);
-  $("after").value = iso(a); $("before").value = iso(b); $("after").max = iso(new Date());
+  $("after").value = iso(a); $("before").value = iso(b); $("after").max = iso(new Date()); $("before").min = "1985-01-01";
 })();
 
 /* ---------- map ---------- */
@@ -341,12 +377,12 @@ $("go").addEventListener("click", async () => {
       body: JSON.stringify({
         bbox: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()],
         before_date: $("before").value, after_date: $("after").value,
-        max_cloud: +$("maxCloud").value
+        max_cloud: +$("maxCloud").value, source: $("source").value
       })
     });
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || "Something went wrong.");
-    showResult(data); say("");
+    showResult(data); say(""); loadHistory();
   } catch (err) { say(err.message, "error"); }
   finally { busy = false; updateGo(); }
 });
@@ -371,7 +407,7 @@ $("checkClouds").addEventListener("click", async () => {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         bbox: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()],
-        before_date: $("before").value, after_date: $("after").value
+        before_date: $("before").value, after_date: $("after").value, source: $("source").value
       })
     });
     const d = await resp.json();
@@ -382,6 +418,29 @@ $("checkClouds").addEventListener("click", async () => {
       '<p class="hint">Percentages here cover the whole satellite tile (about 110 km wide). The results page shows cloud over your own area.</p>';
   } catch (err) { box.innerHTML = `<p class="hint warn-text">${err.message}</p>`; }
 });
+
+/* ---------- saved analyses ---------- */
+async function loadHistory() {
+  const box = $("histList");
+  try {
+    const items = await (await fetch("/api/history")).json();
+    if (!items.length) { box.innerHTML = '<p class="hint">Nothing saved yet. Finished comparisons appear here.</p>'; return; }
+    box.innerHTML = items.map(h => `<div class="hrow">
+      <div><b>${h.before} \u2192 ${h.after}</b>
+        <div class="hint">${h.centre[0]}, ${h.centre[1]} \u00b7 ${h.source === "landsat" ? "Landsat" : "Sentinel-2"} \u00b7 saved ${h.created}</div>
+        <div class="hint">${h.percent}% built-up change \u00b7 severity ${h.score}/100 (${h.severity})</div></div>
+      <div class="hbtns"><button class="btn" data-open="${h.name}">Open</button>
+        <a class="btn" href="results/${h.name}/report.pdf" target="_blank" rel="noopener">PDF</a>
+        <a class="btn" href="results/${h.name}/result.json" download="plot-watch-${h.name}.json">Data</a>
+        <button class="btn" data-del="${h.name}">Delete</button></div></div>`).join("");
+  } catch (e) { box.innerHTML = '<p class="hint">Could not load saved analyses.</p>'; }
+}
+$("histList").addEventListener("click", async e => {
+  const open = e.target.dataset.open, del = e.target.dataset.del;
+  if (open) { const r = await fetch("/api/history/" + open); if (r.ok) showResult(await r.json()); }
+  if (del && confirm("Delete this saved analysis?")) { await fetch("/api/history/" + del, { method: "DELETE" }); loadHistory(); }
+});
+loadHistory();
 
 /* ---------- sharp map view ---------- */
 let resMap = null, ovLayer = null, lastResult = null;
@@ -446,8 +505,18 @@ $("cmp").addEventListener("pointermove", e => { if (dragging) fromPointer(e); })
 $("cmp").addEventListener("pointerup", () => dragging = false);
 
 const cl = s => (s.local_cloud ?? s.cloud) + "%";
+function renderInsight(d) {
+  const sv = d.severity;
+  const rows = d.breakdown.map(r => `<div class="brow"><i style="background:${r.color}"></i><span>${r.label}</span>` +
+    `<span class="bbar"><b style="width:${Math.min(100, r.percent * 3)}%;background:${r.color}"></b></span><em>${r.percent}%</em></div>`).join("");
+  $("insight").innerHTML = `<div class="insight">
+    <div class="score ${sv.level.toLowerCase()}"><b>${sv.score}</b><span>/100</span><small>${sv.level} severity</small></div>
+    <div class="why"><h3>Why flagged</h3><p>${sv.explanation}</p><h3>Recommended action</h3><p>${sv.action}</p></div>
+    <div class="brk"><h3>Change by type</h3>${rows}</div></div>`;
+}
 function showResult(d) {
   const u = d.image_urls, bd = d.before_scene.date, ad = d.after_scene.date;
+  renderInsight(d); $("pdfLink").href = d.pdf_url;
   $("alert").className = "alertbox " + d.level; $("alert").textContent = d.alert;
   $("stats").innerHTML = [
     [d.change_percent + "%", "Area changed"], [d.area_km[0] + " \u00d7 " + d.area_km[1] + " km", "Area size"],
@@ -461,7 +530,7 @@ function showResult(d) {
   $("modeChange").innerHTML = fig(u.change, "Detected change in red") +
     `<p class="meta"><a href="${u.change}" download="change-map.png">Download change map</a></p>`;
   const cloudy = [d.before_scene, d.after_scene].some(s => (s.local_cloud ?? s.cloud) > 10);
-  $("meta").textContent = "Images are the clearest Sentinel-2 scenes near your chosen dates, at 10 m resolution. " +
+  $("meta").textContent = `Images are the clearest ${d.source === "landsat" ? "Landsat" : "Sentinel-2"} scenes near your chosen dates, at ${d.resolution_m} m resolution. ` +
     "Cloud figures are measured over your selected area. " +
     (cloudy ? "Clouds cover part of your area in one of the images, so some detected change may be cloud rather than land. Try other dates. " : "") +
     "This is a screening result, so verify important findings on the ground.";

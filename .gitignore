@@ -1,0 +1,6 @@
+backend/data/
+frontend/results/
+__pycache__/
+*.pyc
+venv/
+.venv/
