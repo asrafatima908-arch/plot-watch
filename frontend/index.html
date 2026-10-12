@@ -134,6 +134,8 @@
   .hbtns .btn { padding:.4rem .8rem; font-size:.85rem; }
   details.why-sat { margin-top:.6rem; font-size:.85rem; color:var(--muted); }
   details.why-sat summary { cursor:pointer; color:var(--moss); font-weight:600; }
+  .where { position:absolute; z-index:900; left:.9rem; top:4.3rem; background:rgba(18,48,42,.88); color:#fff; padding:.35rem .8rem; border-radius:999px; font-size:.85rem; max-width:80%; pointer-events:none; }
+  .where:empty { display:none; }
   a { color:var(--moss); font-weight:600; }
 </style>
 </head>
@@ -159,6 +161,7 @@
       </form>
       <div id="map" role="application" aria-label="Map for choosing an area"></div>
       <div id="mapHint" class="maphint">Search a place, then click the map to choose an area</div>
+      <div id="whereAmI" class="where" aria-live="polite"></div>
     </div>
 
     <div class="card panel">
@@ -289,8 +292,25 @@ function labelLayer(m) {
     { pane: "labels", subdomains: "abcd", maxZoom: 19, attribution: "Labels &copy; OpenStreetMap contributors &copy; CARTO" });
 }
 const labels = labelLayer(map).addTo(map);
-L.control.layers({ Satellite: sat, Street: street }, { "Place names (English)": labels }).addTo(map);
+const borders = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+  { pane: "labels", maxZoom: 19, attribution: "Boundaries &copy; Esri" });
+L.control.layers({ Satellite: sat, Street: street },
+  { "Place names (English)": labels, "State borders and names (Esri)": borders }).addTo(map);
 map.on("baselayerchange", e => { if (e.layer === street) map.removeLayer(labels); else map.addLayer(labels); });
+
+/* always show which area, state and country the map centre is in */
+let whereTimer = null;
+async function updateWhere() {
+  const c = map.getCenter();
+  try {
+    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&zoom=10&accept-language=en&lat=${c.lat}&lon=${c.lng}`);
+    const a = (await r.json()).address || {};
+    const parts = [a.city || a.town || a.village || a.county || a.state_district, a.state, a.country].filter(Boolean);
+    $("whereAmI").textContent = [...new Set(parts)].join(", ");
+  } catch (e) { $("whereAmI").textContent = ""; }
+}
+map.on("moveend", () => { clearTimeout(whereTimer); whereTimer = setTimeout(updateWhere, 900); });
+updateWhere();
 
 function squareAround(c, km) {
   const dlat = km / 2 / KM_LAT, dlon = km / 2 / (KM_LON * Math.cos(c.lat * Math.PI / 180));
