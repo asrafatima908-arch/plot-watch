@@ -136,6 +136,10 @@
   details.why-sat summary { cursor:pointer; color:var(--moss); font-weight:600; }
   .where { position:absolute; z-index:900; left:.9rem; top:4.3rem; background:rgba(18,48,42,.88); color:#fff; padding:.35rem .8rem; border-radius:999px; font-size:.85rem; max-width:80%; pointer-events:none; }
   .where:empty { display:none; }
+  .state-wrap { width:0; height:0; overflow:visible; }
+  .state-wrap span { position:absolute; transform:translate(-50%,-50%); white-space:nowrap; color:#fff; font:600 11px/1 var(--sans);
+    letter-spacing:.08em; text-transform:uppercase; text-shadow:0 0 3px #000, 0 0 3px #000, 0 0 6px #000; }
+  .hide-states .state-wrap { display:none; }
   a { color:var(--moss); font-weight:600; }
 </style>
 </head>
@@ -297,8 +301,26 @@ function labelLayer(m) {
   ]);
 }
 const labels = labelLayer(map).addTo(map);
-L.control.layers({ Satellite: sat, Street: street }, { "Place names, states and borders": labels }).addTo(map);
-map.on("baselayerchange", e => { if (e.layer === street) map.removeLayer(labels); else map.addLayer(labels); });
+/* Indian state and union territory names (approximate label positions) */
+const INDIA_STATES = [
+  ["Andhra Pradesh",15.9,79.7],["Arunachal Pradesh",28.2,94.7],["Assam",26.2,92.9],["Bihar",25.1,85.3],
+  ["Chhattisgarh",21.3,81.9],["Goa",15.3,74.1],["Gujarat",22.7,71.6],["Haryana",29.1,76.1],
+  ["Himachal Pradesh",31.9,77.2],["Jharkhand",23.6,85.3],["Karnataka",14.8,75.7],["Kerala",10.5,76.5],
+  ["Madhya Pradesh",23.5,78.0],["Maharashtra",19.5,76.0],["Manipur",24.8,93.9],["Meghalaya",25.5,91.4],
+  ["Mizoram",23.3,92.8],["Nagaland",26.0,94.5],["Odisha",20.5,84.4],["Punjab",31.0,75.4],
+  ["Rajasthan",26.6,74.0],["Sikkim",27.6,88.5],["Tamil Nadu",11.0,78.5],["Telangana",17.9,79.1],
+  ["Tripura",23.8,91.7],["Uttar Pradesh",26.9,80.5],["Uttarakhand",30.1,79.2],["West Bengal",23.0,87.9],
+  ["Delhi",28.65,77.2],["Jammu and Kashmir",33.8,76.0],["Ladakh",34.5,77.5],["Chandigarh",30.73,76.78],
+  ["Puducherry",11.9,79.8],["Andaman and Nicobar",11.7,92.7],["Lakshadweep",10.5,72.6]
+];
+const stateLayer = L.layerGroup(INDIA_STATES.map(([name, lat, lon]) =>
+  L.marker([lat, lon], { pane: "labels", interactive: false, keyboard: false,
+    icon: L.divIcon({ className: "state-wrap", html: `<span>${name}</span>`, iconSize: [0, 0] }) }))).addTo(map);
+function syncStates() { const z = map.getZoom(); map.getContainer().classList.toggle("hide-states", z < 4 || z > 9); }
+map.on("zoomend", syncStates); syncStates();
+L.control.layers({ Satellite: sat, Street: street },
+  { "Place names, states and borders": labels, "Indian state names": stateLayer }).addTo(map);
+map.on("baselayerchange", e => { const on = e.layer !== street; [labels, stateLayer].forEach(l => on ? map.addLayer(l) : map.removeLayer(l)); });
 
 /* always show which area, state and country the map centre is in */
 let whereTimer = null;
