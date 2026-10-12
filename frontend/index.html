@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Plot Watch | See how land changes</title>
+<title>LandLens | See how land changes</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Fraunces:opsz,wght@9..144,600&display=swap" rel="stylesheet">
@@ -431,7 +431,7 @@ async function loadHistory() {
         <div class="hint">${h.percent}% built-up change \u00b7 severity ${h.score}/100 (${h.severity})</div></div>
       <div class="hbtns"><button class="btn" data-open="${h.name}">Open</button>
         <a class="btn" href="results/${h.name}/report.pdf" target="_blank" rel="noopener">PDF</a>
-        <a class="btn" href="results/${h.name}/result.json" download="plot-watch-${h.name}.json">Data</a>
+        <a class="btn" href="results/${h.name}/result.json" download="landlens-${h.name}.json">Data</a>
         <button class="btn" data-del="${h.name}">Delete</button></div></div>`).join("");
   } catch (e) { box.innerHTML = '<p class="hint">Could not load saved analyses.</p>'; }
 }
