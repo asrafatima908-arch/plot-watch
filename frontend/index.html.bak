@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LandLens | See how land changes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Fraunces:opsz,wght@9..144,600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<style>
+  :root {
+    --forest:#12302a; --moss:#2f6b4f; --leaf:#4f9a73; --sand:#f5f1e8; --card:#fffdf8;
+    --ink:#1b2a23; --muted:#66746b; --line:#e2dccd; --clay:#c2410c;
+    --serif: Fraunces, Georgia, "Times New Roman", serif;
+    --sans: "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --shadow: 0 1px 2px rgba(18,48,42,.06), 0 8px 24px rgba(18,48,42,.08);
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:var(--sans); color:var(--ink); background:var(--sand); line-height:1.5; }
+  .hidden { display:none !important; }
+
+  /* hero */
+  .hero { position:relative; background:var(--forest); color:#f5f1e8; padding:2.2rem 1.25rem 4.5rem; overflow:hidden; }
+  .hero::before { content:""; position:absolute; inset:-40% -10% auto auto; width:640px; height:640px; border-radius:50%;
+    background: repeating-radial-gradient(circle at center, transparent 0 22px, rgba(245,241,232,.07) 22px 23px); }
+  .hero::after { content:""; position:absolute; inset:auto auto -55% -8%; width:520px; height:520px; border-radius:50%;
+    background: repeating-radial-gradient(circle at center, transparent 0 18px, rgba(79,154,115,.18) 18px 19px); }
+  .wrap { max-width:1140px; margin:0 auto; position:relative; z-index:1; }
+  .brand { display:flex; align-items:center; gap:.6rem; font-weight:600; letter-spacing:.02em; }
+  .brand svg { width:30px; height:30px; }
+  .hero h1 { font-family:var(--serif); font-weight:600; font-size:clamp(1.9rem, 4.5vw, 3rem); line-height:1.1; margin:1.4rem 0 .6rem; max-width:18ch; }
+  .hero p { margin:0; color:#cfd9d0; max-width:52ch; font-size:1.05rem; }
+
+  main { max-width:1140px; margin:-2.8rem auto 0; padding:0 1.25rem 4rem; position:relative; z-index:2; }
+  .layout { display:grid; grid-template-columns: minmax(0,1.7fr) minmax(300px,1fr); gap:1.1rem; align-items:start; }
+  @media (max-width:860px) { .layout { grid-template-columns:1fr; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:16px; box-shadow:var(--shadow); }
+
+  /* map */
+  .mapcard { position:relative; overflow:hidden; }
+  #map { height:600px; border-radius:16px; z-index:0; }
+  @media (max-width:860px) { #map { height:420px; } }
+  .searchbar { position:absolute; z-index:1000; top:.9rem; left:.9rem; right:3.9rem; max-width:420px; display:flex; background:#fff; border-radius:12px; box-shadow:var(--shadow); overflow:hidden; border:1px solid var(--line); }
+  .searchbar input { border:0; padding:.8rem .9rem; font:inherit; flex:1; min-width:0; background:transparent; }
+  .searchbar input:focus { outline:none; }
+  .searchbar:focus-within { border-color:var(--moss); box-shadow:0 0 0 3px rgba(79,154,115,.3), var(--shadow); }
+  .searchbar button { border:0; background:var(--moss); color:#fff; padding:0 1.1rem; font:inherit; font-weight:600; cursor:pointer; }
+  .searchbar button:hover { background:#285c43; }
+  .maphint { position:absolute; z-index:900; left:50%; bottom:1.2rem; transform:translateX(-50%); background:rgba(18,48,42,.88); color:#fff;
+    padding:.55rem 1rem; border-radius:999px; font-size:.9rem; pointer-events:none; white-space:nowrap; }
+
+  /* panel */
+  .panel { padding:1.25rem; display:grid; gap:1.3rem; }
+  .step { display:grid; grid-template-columns:auto 1fr; gap:.8rem; }
+  .num { width:28px; height:28px; border-radius:50%; background:var(--forest); color:#fff; display:grid; place-items:center; font-weight:600; font-size:.85rem; margin-top:.1rem; }
+  h2 { font-family:var(--serif); font-size:1.15rem; margin:0 0 .25rem; font-weight:600; }
+  .hint { color:var(--muted); font-size:.88rem; margin:0; }
+  .info { margin:.7rem 0 0; padding:.6rem .75rem; border-radius:10px; background:#eef3ec; color:var(--moss); font-size:.88rem; font-weight:500; }
+  .info.warn { background:#fde8e6; color:#9b1c12; }
+  .row2 { display:grid; grid-template-columns:1fr 1fr; gap:.7rem; margin-top:.6rem; }
+  label { display:flex; flex-direction:column; gap:.25rem; font-size:.8rem; font-weight:600; color:var(--muted); letter-spacing:.02em; text-transform:uppercase; }
+  input[type=date] { font:inherit; font-size:.95rem; padding:.55rem .6rem; border:1px solid var(--line); border-radius:10px; background:#fff; color:var(--ink); text-transform:none; letter-spacing:0; }
+  input[type=range] { width:100%; accent-color:var(--moss); }
+  .sizerow { display:flex; align-items:center; gap:.7rem; margin-top:.6rem; }
+  .sizerow output { min-width:3.5rem; font-weight:600; color:var(--moss); }
+  button { font:inherit; cursor:pointer; }
+  .btn { padding:.7rem 1rem; border-radius:10px; border:1.5px solid var(--moss); background:#fff; color:var(--moss); font-weight:600; transition:background .15s; }
+  .btn:hover { background:#eef3ec; }
+  .btn.on { background:var(--clay); border-color:var(--clay); color:#fff; }
+  .btn.primary { background:var(--moss); color:#fff; font-size:1.02rem; padding:.9rem 1rem; width:100%; }
+  .btn.primary:hover { background:#285c43; }
+  .btn:disabled { opacity:.5; cursor:not-allowed; }
+  .btn:focus-visible, input:focus-visible { outline:3px solid #9cc7b0; outline-offset:2px; }
+  .progress { display:flex; gap:.7rem; align-items:center; color:var(--muted); font-size:.92rem; min-height:1.6rem; }
+  .progress.error { color:#9b1c12; }
+  .spin { width:18px; height:18px; border-radius:50%; border:3px solid #cfe2d6; border-top-color:var(--moss); animation:sp .8s linear infinite; flex:none; }
+  @keyframes sp { to { transform:rotate(360deg); } }
+  @media (prefers-reduced-motion:reduce) { .spin { animation-duration:2.4s; } }
+
+  /* results */
+  .results { padding:1.4rem; }
+  .topbar { display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; }
+  .topbar h2 { font-size:1.6rem; margin:0; }
+  .alertbox { display:flex; gap:.7rem; align-items:center; padding:1rem 1.1rem; border-radius:12px; font-weight:600; margin-bottom:1rem; }
+  .alertbox::before { content:""; width:12px; height:12px; border-radius:50%; background:currentColor; flex:none; }
+  .alertbox.alert { background:#fde8e6; color:#9b1c12; }
+  .alertbox.watch { background:#fff3d6; color:#7a5300; }
+  .alertbox.clear { background:#e3f4e8; color:#1d6b3a; }
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:.8rem; margin-bottom:1.2rem; }
+  .stat { background:#fff; border:1px solid var(--line); border-radius:12px; padding:.8rem 1rem; }
+  .stat b { display:block; font-family:var(--serif); font-size:1.7rem; line-height:1.2; }
+  .stat span { font-size:.78rem; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; font-weight:600; }
+  .seg { display:inline-flex; background:#ebe5d6; border-radius:12px; padding:4px; margin-bottom:1rem; flex-wrap:wrap; }
+  .seg button { border:0; background:transparent; padding:.55rem 1rem; border-radius:9px; font-weight:600; color:var(--muted); }
+  .seg button[aria-pressed="true"] { background:#fff; color:var(--forest); box-shadow:0 1px 3px rgba(0,0,0,.12); }
+  .cmp { position:relative; overflow:hidden; border-radius:14px; border:1px solid var(--line); cursor:ew-resize; user-select:none; touch-action:pan-y; max-width:960px; }
+  .cmp img { display:block; width:100%; pointer-events:none; }
+  .cmp img.top { position:absolute; inset:0; clip-path:inset(0 50% 0 0); }
+  .cmp .line { position:absolute; top:0; bottom:0; left:50%; width:3px; margin-left:-1.5px; background:#fff; box-shadow:0 0 6px rgba(0,0,0,.45); }
+  .cmp .knob { position:absolute; top:50%; left:50%; width:44px; height:44px; margin:-22px 0 0 -22px; border-radius:50%; background:#fff; box-shadow:0 2px 10px rgba(0,0,0,.35); display:grid; place-items:center; color:var(--forest); font-weight:700; }
+  .cmp .tag { position:absolute; bottom:.7rem; padding:.3rem .65rem; font-size:.82rem; font-weight:600; background:rgba(18,48,42,.8); color:#fff; border-radius:8px; }
+  .cmp .tag.l { left:.7rem; } .cmp .tag.r { right:.7rem; }
+  #pos { width:100%; max-width:960px; margin-top:.7rem; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:1rem; max-width:1000px; }
+  figure { margin:0; } figure img { width:100%; display:block; border-radius:12px; border:1px solid var(--line); }
+  figcaption { font-size:.9rem; color:var(--muted); margin-top:.35rem; }
+  .meta { font-size:.85rem; color:var(--muted); margin:1.1rem 0 0; max-width:900px; }
+  .clouds { margin-top:.8rem; display:grid; gap:.9rem; }
+  .cl h3 { font-size:.82rem; margin:0 0 .3rem; color:var(--muted); font-weight:600; }
+  .crow { display:grid; grid-template-columns:5.6rem 1fr 3rem auto; gap:.5rem; align-items:center; font-size:.85rem; padding:.15rem 0; }
+  .bar { height:8px; background:#ebe5d6; border-radius:99px; overflow:hidden; }
+  .bar i { display:block; height:100%; border-radius:99px; }
+  .use { font-size:.72rem; background:#e3f4e8; color:#1d6b3a; padding:.1rem .45rem; border-radius:6px; }
+  .warn-text { color:#9b1c12; }
+  #resMap { height:540px; max-width:960px; border-radius:14px; border:1px solid var(--line); }
+  select { font:inherit; padding:.55rem; border:1px solid var(--line); border-radius:10px; background:#fff; color:var(--ink); text-transform:none; letter-spacing:0; width:100%; }
+  a.btn { text-decoration:none; display:inline-block; }
+  .insight { display:grid; grid-template-columns:auto 1.2fr 1.3fr; gap:1rem; margin-bottom:1.2rem; align-items:start; }
+  @media (max-width:900px) { .insight { grid-template-columns:1fr; } }
+  .score { background:#fff; border:1px solid var(--line); border-radius:14px; padding:1rem 1.4rem; text-align:center; min-width:150px; }
+  .score b { font-family:var(--serif); font-size:3rem; line-height:1; }
+  .score small { display:block; margin-top:.3rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em; font-size:.78rem; }
+  .score.low { color:#1d6b3a; } .score.moderate { color:#7a5300; } .score.high { color:#b45309; } .score.critical { color:#9b1c12; }
+  .why, .brk { background:#fff; border:1px solid var(--line); border-radius:14px; padding:1rem; }
+  .insight h3 { font-size:.78rem; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:0 0 .3rem; }
+  .insight p { margin:0 0 .8rem; font-size:.9rem; }
+  .brow { display:grid; grid-template-columns:12px 1fr 70px 3rem; gap:.5rem; align-items:center; font-size:.85rem; padding:.2rem 0; }
+  .brow i { width:12px; height:12px; border-radius:3px; }
+  .bbar { height:6px; background:#ebe5d6; border-radius:99px; overflow:hidden; } .bbar b { display:block; height:100%; }
+  .brow em { font-style:normal; text-align:right; font-weight:600; }
+  .hrow { display:flex; justify-content:space-between; gap:1rem; flex-wrap:wrap; padding:.8rem 0; border-top:1px solid var(--line); }
+  .hbtns { display:flex; gap:.4rem; flex-wrap:wrap; align-items:center; }
+  .hbtns .btn { padding:.4rem .8rem; font-size:.85rem; }
+  details.why-sat { margin-top:.6rem; font-size:.85rem; color:var(--muted); }
+  details.why-sat summary { cursor:pointer; color:var(--moss); font-weight:600; }
+  .where { position:absolute; z-index:900; left:.9rem; top:4.3rem; background:rgba(18,48,42,.88); color:#fff; padding:.35rem .8rem; border-radius:999px; font-size:.85rem; max-width:80%; pointer-events:none; }
+  .where:empty { display:none; }
+  .state-wrap { width:0; height:0; overflow:visible; }
+  .state-wrap span { position:absolute; transform:translate(-50%,-50%); white-space:nowrap; color:#fff; font:600 11px/1 var(--sans);
+    letter-spacing:.08em; text-transform:uppercase; text-shadow:0 0 3px #000, 0 0 3px #000, 0 0 6px #000; }
+  .hide-states .state-wrap { display:none; }
+  a { color:var(--moss); font-weight:600; }
+</style>
+</head>
+<body>
+<header class="hero">
+  <div class="wrap">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><circle cx="16" cy="16" r="14" stroke="#4f9a73" stroke-width="2"/><circle cx="16" cy="16" r="8" stroke="#f5f1e8" stroke-width="2"/><circle cx="16" cy="16" r="2.6" fill="#c2410c"/></svg>
+      LandLens
+    </div>
+    <h1>See how land changes, from space.</h1>
+    <p>Pick any place on the map and two dates. We compare satellite images and highlight new construction or cleared land.</p>
+  </div>
+</header>
+
+<main>
+  <!-- PAGE 1 -->
+  <section id="pickView" class="layout">
+    <div class="card mapcard">
+      <form id="searchForm" class="searchbar" role="search">
+        <input id="q" type="search" placeholder="Search a city, area or landmark" aria-label="Search a city, area or landmark">
+        <button type="submit">Search</button>
+      </form>
+      <div id="map" role="application" aria-label="Map for choosing an area"></div>
+      <div id="mapHint" class="maphint">Search a place, then click the map to choose an area</div>
+      <div id="whereAmI" class="where" aria-live="polite"></div>
+    </div>
+
+    <div class="card panel">
+      <div class="step">
+        <span class="num">1</span>
+        <div>
+          <h2>Choose an area</h2>
+          <p class="hint">Click the map to place a square, or draw your own rectangle.</p>
+          <div class="sizerow">
+            <input id="size" type="range" min="0.5" max="6" step="0.5" value="2" aria-label="Square size in kilometres">
+            <output id="sizeOut">2 km</output>
+          </div>
+          <button id="draw" type="button" class="btn" style="margin-top:.7rem">Draw a custom area</button>
+          <p class="info" id="areaInfo">No area selected yet.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <span class="num">2</span>
+        <div>
+          <h2>Pick two dates</h2>
+          <p class="hint">Use the same time of year for both, so seasons don't look like changes.</p>
+          <div class="row2">
+            <label>Before <input id="before" type="date" required></label>
+            <label>After <input id="after" type="date" required></label>
+          </div>
+          <div style="margin-top:.9rem">
+            <label>Max cloud cover <output id="cloudOut" style="text-transform:none;letter-spacing:0;color:var(--moss)">20%</output>
+              <input id="maxCloud" type="range" min="5" max="60" step="5" value="20">
+            </label>
+          </div>
+          <label style="margin-top:.9rem">Image source
+            <select id="source">
+              <option value="auto">Auto (Sentinel-2 10 m; Landsat 30 m before 2017)</option>
+              <option value="sentinel">Sentinel-2 only (2017 onward)</option>
+              <option value="landsat">Landsat only (1985 onward)</option>
+            </select>
+          </label>
+          <details class="why-sat"><summary>Why two satellites?</summary>
+            <p style="margin:.4rem 0 0">Sentinel-2 gives sharp 10 m pixels, but its dependable archive starts around 2017. Landsat has imaged the Earth since the 1980s, with softer 30 m pixels, so it is used for older dates. Both dates in one comparison always use the same satellite, so the result stays fair.</p>
+          </details>
+          <button id="checkClouds" type="button" class="btn" style="margin-top:.7rem">Check cloud cover</button>
+          <div id="clouds" class="clouds" aria-live="polite"></div>
+        </div>
+      </div>
+
+      <div>
+        <button id="go" class="btn primary" type="button">Compare images</button>
+        <div id="status" class="progress" role="status" style="margin-top:.8rem"></div>
+      </div>
+    </div>
+    <div class="card" style="grid-column:1/-1; padding:1.25rem">
+      <h2>Saved analyses</h2>
+      <p class="hint">Every finished comparison is saved here, with its PDF report and data file.</p>
+      <div id="histList"></div>
+    </div>
+  </section>
+
+  <!-- PAGE 2 -->
+  <section id="resultView" class="card results hidden">
+    <div class="topbar">
+      <h2>Before and after</h2>
+      <div style="display:flex;gap:.6rem;flex-wrap:wrap"><a id="pdfLink" class="btn" href="#" target="_blank" rel="noopener">Download PDF report</a><button id="back" type="button" class="btn">&larr; New search</button></div>
+    </div>
+    <div id="alert" class="alertbox"></div>
+    <div class="stats" id="stats"></div>
+
+    <div id="insight"></div>
+    <div class="seg" role="group" aria-label="View mode">
+      <button type="button" data-mode="slider" aria-pressed="true">Slider</button>
+      <button type="button" data-mode="side" aria-pressed="false">Side by side</button>
+      <button type="button" data-mode="change" aria-pressed="false">Change map</button>
+      <button type="button" data-mode="map" aria-pressed="false">On sharp map</button>
+    </div>
+
+    <div id="modeSlider">
+      <div class="cmp" id="cmp">
+        <img id="imgAfter" alt="After image">
+        <img id="imgBefore" class="top" alt="Before image">
+        <div class="line" id="line"></div>
+        <div class="knob" id="knob" aria-hidden="true">&harr;</div>
+        <span class="tag l" id="tagBefore"></span><span class="tag r" id="tagAfter"></span>
+      </div>
+      <input id="pos" type="range" min="0" max="100" value="50" aria-label="Slide between before and after">
+    </div>
+    <div id="modeSide" class="grid hidden"></div>
+    <div id="modeChange" class="grid hidden"></div>
+    <div id="modeMap" class="hidden">
+      <div id="resMap"></div>
+      <p id="mapNote" class="hint warn-text" style="margin-top:.5rem"></p>
+      <label style="max-width:320px;margin-top:.7rem">Change overlay opacity
+        <input id="ovOp" type="range" min="0" max="100" value="80">
+      </label>
+      <p class="hint" style="margin-top:.5rem">Detected changes (red) drawn over high-resolution current imagery. The detection itself uses 10 m Sentinel-2 data, so edges are approximate.</p>
+    </div>
+    <p class="meta" id="meta"></p>
+  </section>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const KM_LAT = 110.57, KM_LON = 111.32, MAX_KM = 6, MIN_KM = 0.3;
+let bounds = null, rect = null, tmp = null, drawMode = false, drawStart = null, skipClick = false, busy = false, timer = null;
+
+/* default dates: same season, two years apart */
+(function () {
+  const iso = d => d.toISOString().slice(0, 10);
+  const a = new Date(); a.setDate(a.getDate() - 20);
+  const b = new Date(a); b.setFullYear(b.getFullYear() - 2);
+  $("after").value = iso(a); $("before").value = iso(b); $("after").max = iso(new Date()); $("before").min = "1985-01-01";
+})();
+
+/* ---------- map ---------- */
+const map = L.map("map").setView([22.5, 79], 5);
+const sat = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+  { attribution: "Imagery &copy; Esri", maxZoom: 19 }).addTo(map);
+const street = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
+  { attribution: "Map &copy; Esri", maxZoom: 19 });
+/* English place names drawn above the satellite imagery */
+function labelLayer(m) {
+  if (!m.getPane("labels")) {
+    m.createPane("labels");
+    m.getPane("labels").style.zIndex = 650;
+    m.getPane("labels").style.pointerEvents = "none";
+  }
+  const base = "https://server.arcgisonline.com/ArcGIS/rest/services/";
+  return L.layerGroup([
+    L.tileLayer(base + "Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+      { pane: "labels", maxZoom: 19, attribution: "Labels &copy; Esri" }),
+    L.tileLayer(base + "Ocean/World_Ocean_Reference/MapServer/tile/{z}/{y}/{x}",
+      { pane: "labels", maxZoom: 19, maxNativeZoom: 13, attribution: "Ocean labels &copy; Esri" })
+  ]);
+}
+const labels = labelLayer(map).addTo(map);
+/* Indian state and union territory names (approximate label positions) */
+const INDIA_STATES = [
+  ["Andhra Pradesh",15.9,79.7],["Arunachal Pradesh",28.2,94.7],["Assam",26.2,92.9],["Bihar",25.1,85.3],
+  ["Chhattisgarh",21.3,81.9],["Goa",15.3,74.1],["Gujarat",22.7,71.6],["Haryana",29.1,76.1],
+  ["Himachal Pradesh",31.9,77.2],["Jharkhand",23.6,85.3],["Karnataka",14.8,75.7],["Kerala",10.5,76.5],
+  ["Madhya Pradesh",23.5,78.0],["Maharashtra",19.5,76.0],["Manipur",24.8,93.9],["Meghalaya",25.5,91.4],
+  ["Mizoram",23.3,92.8],["Nagaland",26.0,94.5],["Odisha",20.5,84.4],["Punjab",31.0,75.4],
+  ["Rajasthan",26.6,74.0],["Sikkim",27.6,88.5],["Tamil Nadu",11.0,78.5],["Telangana",17.9,79.1],
+  ["Tripura",23.8,91.7],["Uttar Pradesh",26.9,80.5],["Uttarakhand",30.1,79.2],["West Bengal",23.0,87.9],
+  ["Delhi",28.65,77.2],["Jammu and Kashmir",33.8,76.0],["Ladakh",34.5,77.5],["Chandigarh",30.73,76.78],
+  ["Puducherry",11.9,79.8],["Andaman and Nicobar",11.7,92.7],["Lakshadweep",10.5,72.6]
+];
+const stateLayer = L.layerGroup(INDIA_STATES.map(([name, lat, lon]) =>
+  L.marker([lat, lon], { pane: "labels", interactive: false, keyboard: false,
+    icon: L.divIcon({ className: "state-wrap", html: `<span>${name}</span>`, iconSize: [0, 0] }) }))).addTo(map);
+function syncStates() { const z = map.getZoom(); map.getContainer().classList.toggle("hide-states", z < 4 || z > 9); }
+map.on("zoomend", syncStates); syncStates();
+L.control.layers({ Satellite: sat, Street: street },
+  { "Place names, states and borders": labels, "Indian state names": stateLayer }).addTo(map);
+map.on("baselayerchange", e => { const on = e.layer !== street; [labels, stateLayer].forEach(l => on ? map.addLayer(l) : map.removeLayer(l)); });
+
+/* always show which area, state and country the map centre is in */
+let whereTimer = null;
+async function updateWhere() {
+  const c = map.getCenter();
+  try {
+    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&zoom=10&accept-language=en&lat=${c.lat}&lon=${c.lng}`);
+    const a = (await r.json()).address || {};
+    const parts = [a.city || a.town || a.village || a.county || a.state_district, a.state, a.country].filter(Boolean);
+    $("whereAmI").textContent = [...new Set(parts)].join(", ");
+  } catch (e) { $("whereAmI").textContent = ""; }
+}
+map.on("moveend", () => { clearTimeout(whereTimer); whereTimer = setTimeout(updateWhere, 900); });
+updateWhere();
+
+function squareAround(c, km) {
+  const dlat = km / 2 / KM_LAT, dlon = km / 2 / (KM_LON * Math.cos(c.lat * Math.PI / 180));
+  return L.latLngBounds([c.lat - dlat, c.lng - dlon], [c.lat + dlat, c.lng + dlon]);
+}
+function sizeKm(b) {
+  const lat = b.getCenter().lat;
+  return { w: (b.getEast() - b.getWest()) * KM_LON * Math.cos(lat * Math.PI / 180), h: (b.getNorth() - b.getSouth()) * KM_LAT };
+}
+let valid = false;
+function updateGo() { $("go").disabled = busy || !valid; }
+function setBounds(b) {
+  bounds = b;
+  if (rect) rect.setBounds(b); else rect = L.rectangle(b, { color: "#c2410c", weight: 2, fillOpacity: .15 }).addTo(map);
+  const { w, h } = sizeKm(b), c = b.getCenter();
+  const big = Math.max(w, h) > MAX_KM, small = Math.min(w, h) < MIN_KM;
+  valid = !big && !small;
+  const info = $("areaInfo");
+  info.classList.toggle("warn", !valid);
+  info.textContent = big ? `Too large (${w.toFixed(1)} \u00d7 ${h.toFixed(1)} km). Keep each side under ${MAX_KM} km.`
+    : small ? `Too small. Keep each side at least ${MIN_KM} km.`
+    : `${w.toFixed(1)} \u00d7 ${h.toFixed(1)} km selected, centred at ${c.lat.toFixed(4)}, ${c.lng.toFixed(4)}`;
+  $("mapHint").classList.add("hidden");
+  $("clouds").innerHTML = "";
+  updateGo();
+}
+updateGo();
+
+map.on("click", e => { if (drawMode || skipClick) return; setBounds(squareAround(e.latlng, +$("size").value)); });
+$("size").addEventListener("input", () => {
+  $("sizeOut").textContent = $("size").value + " km";
+  if (bounds) setBounds(squareAround(bounds.getCenter(), +$("size").value));
+});
+
+function stopDraw() {
+  drawMode = false; drawStart = null; map.dragging.enable();
+  $("draw").classList.remove("on"); $("draw").textContent = "Draw a custom area";
+  map.getContainer().style.cursor = "";
+}
+$("draw").addEventListener("click", () => {
+  if (drawMode) return stopDraw();
+  drawMode = true; $("draw").classList.add("on"); $("draw").textContent = "Drag on the map\u2026";
+  map.getContainer().style.cursor = "crosshair";
+});
+map.on("mousedown", e => { if (drawMode) { drawStart = e.latlng; map.dragging.disable(); } });
+map.on("mousemove", e => {
+  if (!drawMode || !drawStart) return;
+  const b = L.latLngBounds(drawStart, e.latlng);
+  if (tmp) tmp.setBounds(b); else tmp = L.rectangle(b, { color: "#c2410c", dashArray: "4" }).addTo(map);
+});
+map.on("mouseup", e => {
+  if (!drawMode || !drawStart) return;
+  const b = L.latLngBounds(drawStart, e.latlng);
+  if (tmp) { map.removeLayer(tmp); tmp = null; }
+  skipClick = true; setTimeout(() => skipClick = false, 80);
+  stopDraw();
+  if (sizeKm(b).w > 0.05) setBounds(b);
+});
+
+/* ---------- status helpers ---------- */
+function say(text, kind) {
+  clearInterval(timer);
+  const s = $("status"); s.className = "progress" + (kind === "error" ? " error" : "");
+  s.innerHTML = (kind === "busy" ? '<span class="spin"></span>' : "") + `<span>${text}</span>`;
+}
+function startProgress() {
+  const msgs = ["Finding the clearest satellite images\u2026", "Downloading your area\u2026", "Comparing the two dates\u2026", "Almost done\u2026"];
+  let i = 0; say(msgs[0], "busy");
+  timer = setInterval(() => { i = Math.min(i + 1, msgs.length - 1); say(msgs[i], "busy"); }, 12000);
+}
+
+/* ---------- search ---------- */
+$("searchForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const q = $("q").value.trim();
+  if (!q) return;
+  say("Searching\u2026", "busy");
+  try {
+    const r = await fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&accept-language=en&q=" + encodeURIComponent(q));
+    const j = await r.json();
+    if (!j.length) { say("Place not found. Try a different name.", "error"); return; }
+    const p = j[0], bb = p.boundingbox.map(Number);
+    map.fitBounds([[bb[0], bb[2]], [bb[1], bb[3]]]);
+    setBounds(squareAround(L.latLng(+p.lat, +p.lon), +$("size").value));
+    say("Found " + p.display_name.split(",").slice(0, 2).join(",") + ". Click the map to move the square.");
+  } catch (err) { say("Search failed. Check your connection.", "error"); }
+});
+
+/* ---------- compare ---------- */
+$("go").addEventListener("click", async () => {
+  if (!bounds) return say("Choose an area on the map first.", "error");
+  busy = true; updateGo(); startProgress();
+  try {
+    const resp = await fetch("/api/analyze", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        bbox: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()],
+        before_date: $("before").value, after_date: $("after").value,
+        max_cloud: +$("maxCloud").value, source: $("source").value
+      })
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || "Something went wrong.");
+    showResult(data); say(""); loadHistory();
+  } catch (err) { say(err.message, "error"); }
+  finally { busy = false; updateGo(); }
+});
+
+/* ---------- cloud cover checker ---------- */
+$("maxCloud").addEventListener("input", () => $("cloudOut").textContent = $("maxCloud").value + "%");
+["before", "after"].forEach(id => $(id).addEventListener("change", () => $("clouds").innerHTML = ""));
+const cloudColor = c => c < 10 ? "#2f9e5f" : c < 30 ? "#d19a1f" : "#c2410c";
+function cloudList(title, scenes, limit) {
+  if (!scenes.length) return `<div class="cl"><h3>${title}</h3><p class="hint">No images found in this window.</p></div>`;
+  const usable = scenes.filter(s => s.cloud < limit);
+  const best = usable.length ? usable.reduce((a, b) => b.cloud < a.cloud ? b : a) : null;
+  return `<div class="cl"><h3>${title}</h3>` + scenes.map(s =>
+    `<div class="crow"><span>${s.date}</span><span class="bar"><i style="width:${Math.max(s.cloud, 2)}%;background:${cloudColor(s.cloud)}"></i></span>` +
+    `<span>${s.cloud}%</span>${s === best ? '<b class="use">Will be used</b>' : ""}</div>`).join("") + "</div>";
+}
+$("checkClouds").addEventListener("click", async () => {
+  if (!bounds) return say("Choose an area on the map first.", "error");
+  const box = $("clouds"); box.innerHTML = '<p class="hint">Checking available images\u2026</p>';
+  try {
+    const resp = await fetch("/api/scenes", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        bbox: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()],
+        before_date: $("before").value, after_date: $("after").value, source: $("source").value
+      })
+    });
+    const d = await resp.json();
+    if (!resp.ok) throw new Error(d.error || "Could not check images.");
+    const lim = +$("maxCloud").value;
+    box.innerHTML = cloudList("Images near " + $("before").value, d.before, lim) +
+      cloudList("Images near " + $("after").value, d.after, lim) +
+      '<p class="hint">Percentages here cover the whole satellite tile (about 110 km wide). The results page shows cloud over your own area.</p>';
+  } catch (err) { box.innerHTML = `<p class="hint warn-text">${err.message}</p>`; }
+});
+
+/* ---------- saved analyses ---------- */
+async function loadHistory() {
+  const box = $("histList");
+  try {
+    const items = await (await fetch("/api/history")).json();
+    if (!items.length) { box.innerHTML = '<p class="hint">Nothing saved yet. Finished comparisons appear here.</p>'; return; }
+    box.innerHTML = items.map(h => `<div class="hrow">
+      <div><b>${h.before} \u2192 ${h.after}</b>
+        <div class="hint">${h.centre[0]}, ${h.centre[1]} \u00b7 ${h.source === "landsat" ? "Landsat" : "Sentinel-2"} \u00b7 saved ${h.created}</div>
+        <div class="hint">${h.percent}% built-up change \u00b7 severity ${h.score}/100 (${h.severity})</div></div>
+      <div class="hbtns"><button class="btn" data-open="${h.name}">Open</button>
+        <a class="btn" href="results/${h.name}/report.pdf" target="_blank" rel="noopener">PDF</a>
+        <a class="btn" href="results/${h.name}/result.json" download="landlens-${h.name}.json">Data</a>
+        <button class="btn" data-del="${h.name}">Delete</button></div></div>`).join("");
+  } catch (e) { box.innerHTML = '<p class="hint">Could not load saved analyses.</p>'; }
+}
+$("histList").addEventListener("click", async e => {
+  const open = e.target.dataset.open, del = e.target.dataset.del;
+  if (open) { const r = await fetch("/api/history/" + open); if (r.ok) showResult(await r.json()); }
+  if (del && confirm("Delete this saved analysis?")) { await fetch("/api/history/" + del, { method: "DELETE" }); loadHistory(); }
+});
+loadHistory();
+
+/* ---------- sharp map view ---------- */
+let resMap = null, ovLayer = null, lastResult = null;
+function initResMap() {
+  const note = $("mapNote");
+  note.textContent = "";
+  try {
+    const d = lastResult;
+    const bb = (d.bbox && d.bbox.length === 4) ? d.bbox
+      : [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()];
+    const [w, s, e, n] = bb, b = [[s, w], [n, e]];
+    if (!resMap) {
+      resMap = L.map("resMap");
+      L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        { attribution: "Imagery &copy; Esri", maxZoom: 19 }).addTo(resMap);
+      labelLayer(resMap).addTo(resMap);
+    }
+    if (ovLayer) { resMap.removeLayer(ovLayer); ovLayer = null; }
+    if (d.image_urls && d.image_urls.overlay) {
+      ovLayer = L.imageOverlay(d.image_urls.overlay, b, { opacity: +$("ovOp").value / 100 });
+      ovLayer.on("error", () => { note.textContent = "The red overlay image could not be loaded. Update detect.py, restart the server and run a new comparison."; });
+      ovLayer.addTo(resMap);
+    } else {
+      note.textContent = "The change overlay file is missing. Update detect.py and app.py, restart the server, then run a new comparison.";
+    }
+    resMap.invalidateSize();
+    resMap.fitBounds(b);
+  } catch (err) {
+    note.textContent = "Map error: " + err.message;
+  }
+}
+$("ovOp").addEventListener("input", () => ovLayer && ovLayer.setOpacity(+$("ovOp").value / 100));
+
+/* ---------- results ---------- */
+function showView(name) {
+  $("pickView").classList.toggle("hidden", name !== "pick");
+  $("resultView").classList.toggle("hidden", name !== "result");
+  if (name === "pick") map.invalidateSize();
+  window.scrollTo({ top: 0 });
+}
+$("back").addEventListener("click", () => showView("pick"));
+
+function setMode(mode) {
+  document.querySelectorAll(".seg button").forEach(b => b.setAttribute("aria-pressed", b.dataset.mode === mode));
+  $("modeSlider").classList.toggle("hidden", mode !== "slider");
+  $("modeSide").classList.toggle("hidden", mode !== "side");
+  $("modeChange").classList.toggle("hidden", mode !== "change");
+  $("modeMap").classList.toggle("hidden", mode !== "map");
+  if (mode === "map" && lastResult) initResMap();
+}
+document.querySelectorAll(".seg button").forEach(b => b.addEventListener("click", () => setMode(b.dataset.mode)));
+
+function setPos(v) {
+  v = Math.max(0, Math.min(100, v));
+  $("imgBefore").style.clipPath = `inset(0 ${100 - v}% 0 0)`;
+  $("line").style.left = v + "%"; $("knob").style.left = v + "%"; $("pos").value = v;
+}
+$("pos").addEventListener("input", e => setPos(+e.target.value));
+let dragging = false;
+const fromPointer = e => { const r = $("cmp").getBoundingClientRect(); setPos((e.clientX - r.left) / r.width * 100); };
+$("cmp").addEventListener("pointerdown", e => { dragging = true; $("cmp").setPointerCapture(e.pointerId); fromPointer(e); });
+$("cmp").addEventListener("pointermove", e => { if (dragging) fromPointer(e); });
+$("cmp").addEventListener("pointerup", () => dragging = false);
+
+const cl = s => (s.local_cloud ?? s.cloud) + "%";
+function renderInsight(d) {
+  const sv = d.severity;
+  const rows = d.breakdown.map(r => `<div class="brow"><i style="background:${r.color}"></i><span>${r.label}</span>` +
+    `<span class="bbar"><b style="width:${Math.min(100, r.percent * 3)}%;background:${r.color}"></b></span><em>${r.percent}%</em></div>`).join("");
+  $("insight").innerHTML = `<div class="insight">
+    <div class="score ${sv.level.toLowerCase()}"><b>${sv.score}</b><span>/100</span><small>${sv.level} severity</small></div>
+    <div class="why"><h3>Why flagged</h3><p>${sv.explanation}</p><h3>Recommended action</h3><p>${sv.action}</p></div>
+    <div class="brk"><h3>Change by type</h3>${rows}</div></div>`;
+}
+function showResult(d) {
+  const u = d.image_urls, bd = d.before_scene.date, ad = d.after_scene.date;
+  renderInsight(d); $("pdfLink").href = d.pdf_url;
+  $("alert").className = "alertbox " + d.level; $("alert").textContent = d.alert;
+  $("stats").innerHTML = [
+    [d.change_percent + "%", "Area changed"], [d.area_km[0] + " \u00d7 " + d.area_km[1] + " km", "Area size"],
+    [bd, "Before image"], [ad, "After image"],
+    [cl(d.before_scene), "Cloud, before"], [cl(d.after_scene), "Cloud, after"]
+  ].map(([v, l]) => `<div class="stat"><b>${v}</b><span>${l}</span></div>`).join("");
+  $("imgBefore").src = u.before; $("imgAfter").src = u.after;
+  $("tagBefore").textContent = "Before \u00b7 " + bd; $("tagAfter").textContent = "After \u00b7 " + ad;
+  const fig = (src, cap) => `<figure><img src="${src}" alt="${cap}"><figcaption>${cap}</figcaption></figure>`;
+  $("modeSide").innerHTML = fig(u.before, "Before (" + bd + ")") + fig(u.after, "After (" + ad + ")");
+  $("modeChange").innerHTML = fig(u.change, "Detected change in red") +
+    `<p class="meta"><a href="${u.change}" download="change-map.png">Download change map</a></p>`;
+  const cloudy = [d.before_scene, d.after_scene].some(s => (s.local_cloud ?? s.cloud) > 10);
+  $("meta").textContent = `Images are the clearest ${d.source === "landsat" ? "Landsat" : "Sentinel-2"} scenes near your chosen dates, at ${d.resolution_m} m resolution. ` +
+    "Cloud figures are measured over your selected area. " +
+    (cloudy ? "Clouds cover part of your area in one of the images, so some detected change may be cloud rather than land. Try other dates. " : "") +
+    "This is a screening result, so verify important findings on the ground.";
+  lastResult = d; setPos(50); setMode("slider"); showView("result");
+}
+</script>
+</body>
+</html>
