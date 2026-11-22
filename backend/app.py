@@ -13,6 +13,7 @@ from pathlib import Path
 from flask import Flask, jsonify, request, send_from_directory
 
 from fetch import analyze, list_scenes
+from weather import build_warnings
 
 MAX_KM, MIN_KM = 6.0, 0.3
 RESULTS = Path("../frontend/results")
@@ -29,12 +30,16 @@ def home():
 def parse_request(d):
     """Returns (bbox, before, after, w_km, h_km, source, error)."""
     fail = lambda m: (None, None, None, 0, 0, None, m)
+    if not d.get("bbox"):
+        return fail("Please select an area on the map first (click the map or draw a rectangle).")
+    if not d.get("before_date") or not d.get("after_date"):
+        return fail("Please pick both a Before and an After date.")
     try:
         west, south, east, north = [float(x) for x in d["bbox"]]
         before = date.fromisoformat(d["before_date"])
         after = date.fromisoformat(d["after_date"])
     except (KeyError, ValueError, TypeError):
-        return fail("Please choose an area on the map and both dates.")
+        return fail("Please select an area on the map and pick both dates.")
     if not (-180 <= west < east <= 180 and -90 <= south < north <= 90):
         return fail("The selected area is not valid.")
     lat = (south + north) / 2
@@ -43,7 +48,9 @@ def parse_request(d):
     choice = d.get("source", "auto")
     source = choice if choice in ("sentinel", "landsat") else ("landsat" if before < date(2017, 1, 1) else "sentinel")
     err = None
-    if max(w_km, h_km) > MAX_KM:
+    if before == after:
+        err = "No change: both dates are the same. Please pick two different dates."
+    elif max(w_km, h_km) > MAX_KM:
         err = f"Area too large. Keep each side under {MAX_KM:g} km."
     elif min(w_km, h_km) < MIN_KM:
         err = f"Area too small. Keep each side at least {MIN_KM:g} km."
@@ -67,8 +74,11 @@ def api_scenes():
         return jsonify(error=err), 400
     win = 20 if source == "sentinel" else 30
     try:
-        return jsonify(before=list_scenes(source, bbox, before.isoformat(), win),
-                       after=list_scenes(source, bbox, after.isoformat(), win), source=source)
+        res = dict(before=list_scenes(source, bbox, before.isoformat(), win),
+                   after=list_scenes(source, bbox, after.isoformat(), win), source=source)
+        res["warnings"] = build_warnings(bbox, [("Before", before.isoformat(), None),
+                                                ("After", after.isoformat(), None)])
+        return jsonify(res)
     except Exception as e:
         return jsonify(error=f"Could not check images: {e}"), 500
 
@@ -95,6 +105,9 @@ def api_analyze():
     res["area_km"] = [round(w_km, 1), round(h_km, 1)]
     res["bbox"] = bbox
     res["created"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+    # rain / weather-cloud warnings (scene cloud is shown by the frontend)
+    b, a = res["before_scene"], res["after_scene"]
+    res["warnings"] = build_warnings(bbox, [("Before", b["date"], None), ("After", a["date"], None)])
     (RESULTS / name / "result.json").write_text(json.dumps(res, indent=2))  # saved copy
     return jsonify(res)
 
