@@ -7,7 +7,7 @@ import math
 import re
 import shutil
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from flask import Flask, jsonify, request, send_from_directory
@@ -35,11 +35,14 @@ def parse_request(d):
     if not d.get("before_date") or not d.get("after_date"):
         return fail("Please pick both a Before and an After date.")
     try:
-        west, south, east, north = [float(x) for x in d["bbox"]]
-        before = date.fromisoformat(d["before_date"])
-        after = date.fromisoformat(d["after_date"])
+        before = date.fromisoformat(str(d["before_date"]))
+        after = date.fromisoformat(str(d["after_date"]))
     except (KeyError, ValueError, TypeError):
-        return fail("Please select an area on the map and pick both dates.")
+        return fail("Please enter valid dates.")
+    try:
+        west, south, east, north = [float(x) for x in d["bbox"]]
+    except (KeyError, ValueError, TypeError):
+        return fail("The selected area is not valid.")
     if not (-180 <= west < east <= 180 and -90 <= south < north <= 90):
         return fail("The selected area is not valid.")
     lat = (south + north) / 2
@@ -47,24 +50,43 @@ def parse_request(d):
     h_km = (north - south) * 110.57
     choice = d.get("source", "auto")
     source = choice if choice in ("sentinel", "landsat") else ("landsat" if before < date(2017, 1, 1) else "sentinel")
+    limit = date.today() + timedelta(days=1)      # 1 day of slack for time zones
     err = None
-    if before == after:
+    if before > limit or after > limit:
+        err = "Dates cannot be in the future. Please pick dates up to today."
+    elif before == after:
         err = "No change: both dates are the same. Please pick two different dates."
+    elif before > after:
+        err = "The 'after' date must come later than the 'before' date."
+    elif before < date(1985, 1, 1):
+        err = "Images are available from 1985 onward."
+    elif source == "sentinel" and before < date(2017, 1, 1):
+        err = "Sentinel-2 starts in 2017. Choose Auto or Landsat for earlier dates."
     elif max(w_km, h_km) > MAX_KM:
         err = f"Area too large. Keep each side under {MAX_KM:g} km."
     elif min(w_km, h_km) < MIN_KM:
         err = f"Area too small. Keep each side at least {MIN_KM:g} km."
     elif source == "landsat" and min(w_km, h_km) < 1:
         err = "Landsat images are 30 m, so keep each side at least 1 km."
-    elif before >= after:
-        err = "The 'before' date must be earlier than the 'after' date."
-    elif after > date.today():
-        err = "The 'after' date cannot be in the future."
-    elif before < date(1985, 1, 1):
-        err = "Images are available from 1985 onward."
-    elif source == "sentinel" and before < date(2017, 1, 1):
-        err = "Sentinel-2 starts in 2017. Choose Auto or Landsat for earlier dates."
     return [west, south, east, north], before, after, w_km, h_km, source, err
+
+
+def cloud_refusal(source, bbox, before, after, max_cloud):
+    """Returns an error message if either date has no scene within the cloud limit, else None."""
+    win = 20 if source == "sentinel" else 30
+    try:
+        sides = [("Before", before, list_scenes(source, bbox, before.isoformat(), win)),
+                 ("After", after, list_scenes(source, bbox, after.isoformat(), win))]
+    except Exception:
+        return None            # lookup failed: let analyze() make the final decision
+    for label, day, scenes in sides:
+        if not scenes:
+            return f"{label} date ({day}): no satellite images were found nearby. Choose another date."
+        if not any(s["cloud"] <= max_cloud for s in scenes):
+            low = min(s["cloud"] for s in scenes)
+            return (f"{label} date ({day}): the lowest cloud cover found is {low}%, above your "
+                    f"{max_cloud:g}% limit. Choose another date or raise the maximum cloud cover.")
+    return None
 
 
 @app.route("/api/scenes", methods=["POST"])
@@ -93,6 +115,9 @@ def api_analyze():
         max_cloud = min(80.0, max(1.0, float(d.get("max_cloud", 20))))
     except (ValueError, TypeError):
         max_cloud = 20.0
+    refusal = cloud_refusal(source, bbox, before, after, max_cloud)
+    if refusal:
+        return jsonify(error=refusal), 422
     name = "run_" + uuid.uuid4().hex[:8]
     try:
         res = analyze(bbox, before.isoformat(), after.isoformat(), name, source=source, max_cloud=max_cloud)

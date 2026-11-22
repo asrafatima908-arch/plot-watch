@@ -141,6 +141,10 @@
     letter-spacing:.08em; text-transform:uppercase; text-shadow:0 0 3px #000, 0 0 3px #000, 0 0 6px #000; }
   .hide-states .state-wrap { display:none; }
   .warnbox { margin:.7rem 0; padding:.7rem .9rem; border-radius:10px; background:#fff3d6; color:#7a5300; font-size:.9rem; line-height:1.6; }
+  .errbox { margin:.7rem 0; padding:.7rem .9rem; border-radius:10px; background:#fde8e6; color:#9b1c12; font-size:.9rem; line-height:1.6; font-weight:600; border:1px solid #f3b9b3; }
+  .cloudbox { margin:.7rem 0; padding:.7rem .9rem; border-radius:10px; font-size:.9rem; line-height:1.6; font-weight:600; }
+  .cloudbox.bad { background:#fde8e6; color:#9b1c12; border:1px solid #f3b9b3; }
+  .cloudbox.good { background:#e3f4e8; color:#1d6b3a; border:1px solid #b9dfc6; }
   a { color:var(--moss); font-weight:600; }
 </style>
 </head>
@@ -213,6 +217,8 @@
         </div>
       </div>
 
+      <div id="errBox" class="errbox hidden" role="alert"></div>
+      <div id="cloudBox" class="cloudbox hidden" role="status"></div>
       <div id="warnBox" class="warnbox hidden" role="alert"></div>
       <div>
         <button id="go" class="btn primary" type="button">Compare images</button>
@@ -280,28 +286,78 @@ function showWarn(id, list) {
   el.innerHTML = list.map(w => "\u26a0\ufe0f " + w).join("<br>");
   el.classList.remove("hidden");
 }
+function showErr(msg) {
+  const el = $("errBox");
+  if (!msg) { el.classList.add("hidden"); el.innerHTML = ""; return; }
+  el.textContent = msg; el.classList.remove("hidden");
+}
+
+/* ----- dates ----- */
+const todayISO = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+function addDays(iso, n) { const d = new Date(iso + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+const minDate = () => $("source").value === "sentinel" ? "2017-01-01" : "1985-01-01";
+/* keep the two date pickers linked: After must be later than Before, nothing in the future */
+function syncDates() {
+  const b = $("before"), a = $("after"), today = todayISO();
+  b.min = minDate();
+  a.max = today;
+  a.min = b.value ? addDays(b.value, 1) : addDays(minDate(), 1);
+  b.max = a.value ? addDays(a.value, -1) : addDays(today, -1);
+}
+function dateProblem() {
+  const b = $("before").value, a = $("after").value, today = todayISO(), min = minDate();
+  if (!b || !a) return "Please pick both a Before and an After date.";
+  if (b > today || a > today) return "Dates cannot be in the future. Please pick dates up to today.";
+  if (b < min || a < min) return `Satellite images for this source are available from ${min}. Please pick a later date.`;
+  if (b === a) return "No change: both dates are the same. Please pick two different dates.";
+  if (b > a) return "The After date must come later than the Before date.";
+  return null;
+}
 function inputProblem() {
   if (!bounds) return "Please select an area on the map first (click the map or draw a rectangle).";
   if (!valid) return $("areaInfo").textContent;
-  if (!$("before").value || !$("after").value) return "Please pick both a Before and an After date.";
-  if ($("before").value === $("after").value) return "No change: both dates are the same. Please pick two different dates.";
-  return null;
+  return dateProblem();
 }
-function cloudWarnings(label, list) {
-  if (!list || !list.length) return [];
-  const best = list.reduce((a, b) => b.cloud < a.cloud ? b : a);
-  return best.cloud > CLOUD_WARN
-    ? [`${label}: even the clearest image (${best.date}) is ${best.cloud}% cloudy. Try other dates.`] : [];
+
+/* ----- cloud check result: red/green box, and blocks Compare when nothing is usable ----- */
+function renderCloudStatus() {
+  const box = $("cloudBox");
+  if (!lastScenes) { cloudBlocked = false; box.classList.add("hidden"); box.innerHTML = ""; updateGo(); return; }
+  const lim = +$("maxCloud").value;
+  const sides = [["Before", $("before").value, lastScenes.before || []], ["After", $("after").value, lastScenes.after || []]];
+  const bad = []; const counts = [];
+  sides.forEach(([label, day, list]) => {
+    const ok = list.filter(s => s.cloud <= lim);
+    counts.push(ok.length);
+    if (ok.length) return;
+    if (!list.length) bad.push(`${label} date (${day}): no satellite images were found nearby.`);
+    else bad.push(`${label} date (${day}): the lowest cloud cover found is ${Math.min(...list.map(s => s.cloud))}%, above your ${lim}% limit.`);
+  });
+  if (bad.length) {
+    cloudBlocked = true;
+    box.className = "cloudbox bad";
+    box.innerHTML = "\u26a0\ufe0f " + bad.join("<br>") + "<br>Choose another date or raise the maximum cloud cover.";
+  } else {
+    cloudBlocked = false;
+    const n = counts[0] + counts[1];
+    box.className = "cloudbox good";
+    box.textContent = `\u2713 ${n} usable scene${n === 1 ? "" : "s"} within your ${lim}% limit (${counts[0]} near the before date, ${counts[1]} near the after date).`;
+  }
+  updateGo();
 }
+function resetCloud() { lastScenes = null; $("clouds").innerHTML = ""; renderCloudStatus(); }
+
 const KM_LAT = 110.57, KM_LON = 111.32, MAX_KM = 6, MIN_KM = 0.3;
 let bounds = null, rect = null, tmp = null, drawMode = false, drawStart = null, skipClick = false, busy = false, timer = null;
+let lastScenes = null, cloudBlocked = false;
 
 /* default dates: same season, two years apart */
 (function () {
   const iso = d => d.toISOString().slice(0, 10);
   const a = new Date(); a.setDate(a.getDate() - 20);
   const b = new Date(a); b.setFullYear(b.getFullYear() - 2);
-  $("after").value = iso(a); $("before").value = iso(b); $("after").max = iso(new Date()); $("before").min = "1985-01-01";
+  $("after").value = iso(a); $("before").value = iso(b);
+  syncDates();
 })();
 
 /* ---------- map ---------- */
@@ -370,7 +426,7 @@ function sizeKm(b) {
   return { w: (b.getEast() - b.getWest()) * KM_LON * Math.cos(lat * Math.PI / 180), h: (b.getNorth() - b.getSouth()) * KM_LAT };
 }
 let valid = false;
-function updateGo() { $("go").disabled = busy; }
+function updateGo() { $("go").disabled = busy || cloudBlocked; }
 function setBounds(b) {
   bounds = b;
   if (rect) rect.setBounds(b); else rect = L.rectangle(b, { color: "#c2410c", weight: 2, fillOpacity: .15 }).addTo(map);
@@ -383,7 +439,7 @@ function setBounds(b) {
     : small ? `Too small. Keep each side at least ${MIN_KM} km.`
     : `${w.toFixed(1)} \u00d7 ${h.toFixed(1)} km selected, centred at ${c.lat.toFixed(4)}, ${c.lng.toFixed(4)}`;
   $("mapHint").classList.add("hidden");
-  $("clouds").innerHTML = "";
+  resetCloud();
   updateGo();
 }
 updateGo();
@@ -451,8 +507,8 @@ $("searchForm").addEventListener("submit", async e => {
 /* ---------- compare ---------- */
 $("go").addEventListener("click", async () => {
   const problem = inputProblem();
-  if (problem) return say(problem, "error");
-  showWarn("warnBox", []);
+  if (problem) { say(""); return showErr(problem); }
+  showErr(""); showWarn("warnBox", []);
   busy = true; updateGo(); startProgress();
   try {
     const resp = await fetch("/api/analyze", {
@@ -466,17 +522,18 @@ $("go").addEventListener("click", async () => {
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || "Something went wrong.");
     showResult(data); say(""); loadHistory();
-  } catch (err) { say(err.message, "error"); }
+  } catch (err) { say(""); showErr(err.message); }
   finally { busy = false; updateGo(); }
 });
 
 /* ---------- cloud cover checker ---------- */
-$("maxCloud").addEventListener("input", () => $("cloudOut").textContent = $("maxCloud").value + "%");
-["before", "after"].forEach(id => $(id).addEventListener("change", () => { $("clouds").innerHTML = ""; showWarn("warnBox", []); }));
+$("maxCloud").addEventListener("input", () => { $("cloudOut").textContent = $("maxCloud").value + "%"; renderCloudStatus(); });
+["before", "after"].forEach(id => $(id).addEventListener("change", () => { syncDates(); showErr(""); showWarn("warnBox", []); resetCloud(); }));
+$("source").addEventListener("change", () => { syncDates(); showErr(""); showWarn("warnBox", []); resetCloud(); });
 const cloudColor = c => c < 10 ? "#2f9e5f" : c < 30 ? "#d19a1f" : "#c2410c";
 function cloudList(title, scenes, limit) {
   if (!scenes.length) return `<div class="cl"><h3>${title}</h3><p class="hint">No images found in this window.</p></div>`;
-  const usable = scenes.filter(s => s.cloud < limit);
+  const usable = scenes.filter(s => s.cloud <= limit);
   const best = usable.length ? usable.reduce((a, b) => b.cloud < a.cloud ? b : a) : null;
   return `<div class="cl"><h3>${title}</h3>` + scenes.map(s =>
     `<div class="crow"><span>${s.date}</span><span class="bar"><i style="width:${Math.max(s.cloud, 2)}%;background:${cloudColor(s.cloud)}"></i></span>` +
@@ -484,8 +541,8 @@ function cloudList(title, scenes, limit) {
 }
 $("checkClouds").addEventListener("click", async () => {
   const problem = inputProblem();
-  if (problem) return say(problem, "error");
-  say(""); showWarn("warnBox", []);
+  if (problem) { say(""); return showErr(problem); }
+  showErr(""); say(""); showWarn("warnBox", []);
   const box = $("clouds"); box.innerHTML = '<p class="hint">Checking available images\u2026</p>';
   try {
     const resp = await fetch("/api/scenes", {
@@ -497,12 +554,13 @@ $("checkClouds").addEventListener("click", async () => {
     });
     const d = await resp.json();
     if (!resp.ok) throw new Error(d.error || "Could not check images.");
-    showWarn("warnBox", [...cloudWarnings("Before", d.before), ...cloudWarnings("After", d.after), ...(d.warnings || [])]);
+    lastScenes = d; renderCloudStatus();
+    showWarn("warnBox", d.warnings || []);
     const lim = +$("maxCloud").value;
     box.innerHTML = cloudList("Images near " + $("before").value, d.before, lim) +
       cloudList("Images near " + $("after").value, d.after, lim) +
       '<p class="hint">Percentages here cover the whole satellite tile (about 110 km wide). The results page shows cloud over your own area.</p>';
-  } catch (err) { box.innerHTML = `<p class="hint warn-text">${err.message}</p>`; }
+  } catch (err) { box.innerHTML = ""; showErr(err.message); }
 });
 
 /* ---------- saved analyses ---------- */
