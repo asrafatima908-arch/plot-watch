@@ -6,6 +6,7 @@ import json
 import math
 import re
 import shutil
+import time
 import uuid
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -71,12 +72,30 @@ def parse_request(d):
     return [west, south, east, north], before, after, w_km, h_km, source, err
 
 
+_SCENE_CACHE = {}          # (source, bbox, day, window) -> (time, scenes)
+_SCENE_TTL = 15 * 60       # reuse a scene search for 15 minutes
+
+
+def scenes_cached(source, bbox, day, win):
+    """list_scenes with a small cache, so Check cloud cover and Compare don't repeat the same searches."""
+    key = (source, tuple(round(x, 5) for x in bbox), day, win)
+    hit = _SCENE_CACHE.get(key)
+    if hit and time.time() - hit[0] < _SCENE_TTL:
+        return hit[1]
+    res = list_scenes(source, bbox, day, win)
+    _SCENE_CACHE[key] = (time.time(), res)
+    if len(_SCENE_CACHE) > 200:
+        for k in sorted(_SCENE_CACHE, key=lambda k: _SCENE_CACHE[k][0])[:100]:
+            _SCENE_CACHE.pop(k, None)
+    return res
+
+
 def cloud_refusal(source, bbox, before, after, max_cloud):
     """Returns an error message if either date has no scene within the cloud limit, else None."""
     win = 20 if source == "sentinel" else 30
     try:
-        sides = [("Before", before, list_scenes(source, bbox, before.isoformat(), win)),
-                 ("After", after, list_scenes(source, bbox, after.isoformat(), win))]
+        sides = [("Before", before, scenes_cached(source, bbox, before.isoformat(), win)),
+                 ("After", after, scenes_cached(source, bbox, after.isoformat(), win))]
     except Exception:
         return None            # lookup failed: let analyze() make the final decision
     for label, day, scenes in sides:
@@ -96,8 +115,8 @@ def api_scenes():
         return jsonify(error=err), 400
     win = 20 if source == "sentinel" else 30
     try:
-        res = dict(before=list_scenes(source, bbox, before.isoformat(), win),
-                   after=list_scenes(source, bbox, after.isoformat(), win), source=source)
+        res = dict(before=scenes_cached(source, bbox, before.isoformat(), win),
+                   after=scenes_cached(source, bbox, after.isoformat(), win), source=source)
         res["warnings"] = build_warnings(bbox, [("Before", before.isoformat(), None),
                                                 ("After", after.isoformat(), None)])
         return jsonify(res)
