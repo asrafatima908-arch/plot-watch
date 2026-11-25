@@ -5,6 +5,7 @@ Only the chosen area is downloaded.
 """
 import json
 import shutil
+import time
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -24,6 +25,39 @@ COLLECTION = {"sentinel": "sentinel-2-l2a", "landsat": "landsat-c2-l2"}
 RES_M = {"sentinel": 10, "landsat": 30}
 LANDSAT_ASSET = {"B02": "blue", "B03": "green", "B04": "red", "B08": "nir08", "B11": "swir16"}
 
+USER_AGENT = {"User-Agent": "PlotWatch/1.0 (land change screening app)"}
+BUSY_MSG = ("The satellite data service (Microsoft Planetary Computer) is temporarily limiting requests. "
+            "Please wait a few minutes and try again.")
+
+
+def _is_rate_limit(e):
+    m = str(e).lower()
+    return any(k in m for k in ("rate limit", "429", "too many", "blocked", "slow down"))
+
+
+def _retry(fn, waits=(3, 8)):
+    """Run fn(); if the service says 'rate limited', wait a little and try again."""
+    for i in range(len(waits) + 1):
+        try:
+            return fn()
+        except Exception as e:
+            if not _is_rate_limit(e):
+                raise
+            if i == len(waits):
+                raise RuntimeError(BUSY_MSG) from e
+            time.sleep(waits[i])
+
+
+_CLIENTS = {}
+
+
+def _get_client(sign):
+    """Open the STAC catalogue once and reuse it (Client.open makes extra requests every time)."""
+    if sign not in _CLIENTS:
+        kw = {"modifier": planetary_computer.sign_inplace} if sign else {}
+        _CLIENTS[sign] = _retry(lambda: Client.open(STAC_URL, headers=USER_AGENT, **kw))
+    return _CLIENTS[sign]
+
 
 def window_around(day, days):
     d = date.fromisoformat(day)
@@ -41,10 +75,14 @@ def _rank(item, source):
 
 
 def best_scene(source, bbox, date_range, max_cloud):
-    catalog = Client.open(STAC_URL, modifier=planetary_computer.sign_inplace)
-    search = catalog.search(collections=[COLLECTION[source]], bbox=bbox, datetime=date_range,
-                            query={"eo:cloud_cover": {"lt": max_cloud}})
-    items = list(search.items())
+    catalog = _get_client(True)
+
+    def run():
+        search = catalog.search(collections=[COLLECTION[source]], bbox=bbox, datetime=date_range,
+                                query={"eo:cloud_cover": {"lt": max_cloud}}, limit=100)
+        return list(search.items())
+
+    items = _retry(run)
     if not items:
         raise RuntimeError(f"No clear satellite image found for {date_range}. "
                            "Try another date, a higher max cloud, or a different image source.")
@@ -101,18 +139,22 @@ def fetch_scene(source, bbox, date_range, out_dir, max_cloud=20):
     print(f"Using {item.id} ({item.datetime.date()}, cloud {item.properties['eo:cloud_cover']:.1f}%)")
     for band in BANDS:
         key = LANDSAT_ASSET[band] if landsat else band
-        download_crop(item.assets[key].href, bbox, out_dir / f"scene_{band}.tif", offset, landsat)
+        _retry(lambda: download_crop(item.assets[key].href, bbox, out_dir / f"scene_{band}.tif", offset, landsat))
     return {"scene": item.id, "date": str(item.datetime.date()),
             "cloud": round(item.properties["eo:cloud_cover"], 1),
             "local_cloud": local_cloud_pct(item, bbox, source)}
 
 
 def list_scenes(source, bbox, center_date, window_days=20):
-    catalog = Client.open(STAC_URL)
-    search = catalog.search(collections=[COLLECTION[source]], bbox=bbox,
-                            datetime=window_around(center_date, window_days))
+    catalog = _get_client(False)
+
+    def run():
+        search = catalog.search(collections=[COLLECTION[source]], bbox=bbox,
+                                datetime=window_around(center_date, window_days), limit=100)
+        return list(search.items())
+
     by_date = {}
-    for it in search.items():
+    for it in _retry(run):
         d, c = str(it.datetime.date()), round(it.properties.get("eo:cloud_cover", 100), 1)
         if d not in by_date or c < by_date[d]:
             by_date[d] = c
