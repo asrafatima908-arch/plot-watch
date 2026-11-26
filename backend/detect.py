@@ -99,9 +99,14 @@ def classify(before, after, ndvi_drop, ndbi_rise, min_pixels):
     # and was vegetated before, even if the vegetation index did not drop (for example when
     # the "after" image is from a greener season).
     m["construction"] = rest & built & (veg_loss | ((nv_a < 0.3) & (nv_b >= 0.2)))
-    m["clearing"] = rest & veg_loss & ~built
-    m["paving"] = rest & ~veg_loss & built & (nv_b < 0.2)
-    m["regrowth"] = rest & veg_gain & ~built
+    # Land that was barren in the "before" image and has since gained buildings or landscaping
+    # (lawns, trees) counts as development, not natural regrowth.
+    barren_before = rest & (nv_b < 0.15)
+    m["construction"] |= barren_before & (built | veg_gain)
+    notc = ~m["construction"]          # categories below never double-count construction pixels
+    m["clearing"] = rest & veg_loss & ~built & notc
+    m["paving"] = rest & ~veg_loss & built & (nv_b < 0.2) & notc
+    m["regrowth"] = rest & veg_gain & ~built & notc
     return {k: clean(v, min_pixels) for k, v in m.items()}, valid
 
 
