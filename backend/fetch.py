@@ -86,7 +86,10 @@ def best_scene(source, bbox, date_range, max_cloud):
     if not items:
         raise RuntimeError(f"No clear satellite image found for {date_range}. "
                            "Try another date, a higher max cloud, or a different image source.")
-    return min(items, key=lambda i: _rank(i, source))
+    # prefer scenes close to the middle of the window (the date the user chose)
+    start, end = [date.fromisoformat(x) for x in date_range.split("/")]
+    target = start + (end - start) / 2
+    return min(items, key=lambda i: _rank(i, source) + 0.3 * abs((i.datetime.date() - target).days))
 
 
 def _window(src, bbox):

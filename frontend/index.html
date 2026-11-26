@@ -663,6 +663,9 @@ function showResult(d) {
   const u = d.image_urls, bd = d.before_scene.date, ad = d.after_scene.date;
   renderInsight(d); $("pdfLink").href = d.pdf_url;
   const w = [];
+  const doy = s => { const t = new Date(s + "T00:00:00Z"); return Math.floor((t - Date.UTC(t.getUTCFullYear(), 0, 0)) / 864e5); };
+  const gapRaw = Math.abs(doy(bd) - doy(ad)), gap = Math.min(gapRaw, 365 - gapRaw);
+  if (gap > 30) w.push(`The two images are ${gap} days apart in the year. Seasonal changes in vegetation and moisture can look like land change, so treat the results with care.`);
   [["Before", d.before_scene], ["After", d.after_scene]].forEach(([l, s]) => {
     const c = s.local_cloud ?? s.cloud;
     if (c > CLOUD_WARN) w.push(`${l} image (${s.date}): ${c}% cloud over your area. Some detected change may be cloud, not land.`);

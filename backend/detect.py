@@ -95,10 +95,13 @@ def classify(before, after, ndvi_drop, ndbi_rise, min_pixels):
     veg_loss, veg_gain, built = dv < -ndvi_drop, dv > ndvi_drop, db > ndbi_rise
     m = {"water_gain": valid & ~wet_b & wet_a, "water_loss": valid & wet_b & ~wet_a}
     rest = valid & ~m["water_gain"] & ~m["water_loss"]
-    m["construction"] = rest & veg_loss & built
+    # A built-up rise also counts as construction when the ground is now sparsely vegetated
+    # and was vegetated before, even if the vegetation index did not drop (for example when
+    # the "after" image is from a greener season).
+    m["construction"] = rest & built & (veg_loss | ((nv_a < 0.3) & (nv_b >= 0.2)))
     m["clearing"] = rest & veg_loss & ~built
     m["paving"] = rest & ~veg_loss & built & (nv_b < 0.2)
-    m["regrowth"] = rest & veg_gain
+    m["regrowth"] = rest & veg_gain & ~built
     return {k: clean(v, min_pixels) for k, v in m.items()}, valid
 
 
